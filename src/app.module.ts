@@ -34,6 +34,7 @@ import { ExpiryModule } from './modules/expiry/expiry.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -102,6 +103,7 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     ReportsModule,
     AdminModule,
     ImportsModule,
+    OnboardingModule,
   ],
 })
 export class AppModule implements NestModule {
