@@ -120,6 +120,10 @@ export const INITIAL_PERMISSIONS = [
     code: 'sales.view_cost_margin',
     description: 'View COGS cost price and gross profit margin on invoices',
   },
+  {
+    code: 'sales.override_mrp',
+    description: 'Override Maximum Retail Price (MRP) ceiling on sales invoices with justification reason',
+  },
 
   // Suppliers & Vendors
   {

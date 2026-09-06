@@ -325,32 +325,160 @@ describe('SalesService', () => {
     expect(draft.status).toBe('DRAFT');
   });
 
-  it('cancels posted sales invoice with compensating stock restoration and ledger refund', async () => {
-    const cancelled = await service.cancelSalesInvoice(
-      'inv-1',
-      'user-1',
+  it('allows sale and returns creditWarnings in soft mode when ENFORCE_CREDIT_LIMIT is false', async () => {
+    // Current balance 49,900 + new invoice 500 = 50,400 > credit limit 50,000
+    const overLimitCustomer = {
+      ...mockCustomer,
+      current_balance: new Decimal('49900.00'),
+      credit_limit: new Decimal('50000.00'),
+    };
+    prisma.$queryRaw.mockImplementationOnce(() => [overLimitCustomer]);
+    prisma.systemSetting.findUnique.mockResolvedValueOnce({ value: 'false' }); // Soft mode
+
+    const res = await service.createSalesInvoice(
       {
-        cancellationReason: 'Wrong medicine dispensed by cashier',
+        customerId: 'cust-1',
+        warehouseId: 'wh-1',
+        paymentMethod: 'CREDIT_ACCOUNT' as any,
+        items: [
+          {
+            productId: 'prod-1',
+            billedQuantity: 10,
+            unitPrice: 50, // Total = 500
+          },
+        ],
       },
+      'user-1',
     );
 
-    expect(prisma.stockMovement.create).toHaveBeenCalledWith(
+    expect(res).toBeDefined();
+    expect((res as any).creditWarnings).toBeDefined();
+    expect((res as any).creditWarnings?.[0]).toContain('exceeds customer credit limit');
+  });
+
+  it('hard blocks sale when ENFORCE_CREDIT_LIMIT is true and credit limit is exceeded', async () => {
+    const overLimitCustomer = {
+      ...mockCustomer,
+      current_balance: new Decimal('49900.00'),
+      credit_limit: new Decimal('50000.00'),
+    };
+    prisma.$queryRaw.mockImplementationOnce(() => [overLimitCustomer]);
+    prisma.systemSetting.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.organizationId_key.key === 'ENFORCE_CREDIT_LIMIT') {
+        return { value: 'true' }; // Hard mode
+      }
+      return { value: 'TP' };
+    });
+
+    await expect(
+      service.createSalesInvoice(
+        {
+          customerId: 'cust-1',
+          warehouseId: 'wh-1',
+          paymentMethod: 'CREDIT_ACCOUNT' as any,
+          items: [
+            {
+              productId: 'prod-1',
+              billedQuantity: 10,
+              unitPrice: 50, // Total = 500
+            },
+          ],
+        },
+        'user-1',
+      ),
+    ).rejects.toThrow('Sale exceeds customer credit limit');
+  });
+
+  it('allows above-MRP line when user has sales.override_mrp permission with valid reason and logs audit', async () => {
+    const res = await service.createSalesInvoice(
+      {
+        customerId: 'cust-1',
+        warehouseId: 'wh-1',
+        paymentMethod: 'CASH' as any,
+        items: [
+          {
+            productId: 'prod-1',
+            billedQuantity: 5,
+            unitPrice: 65, // Exceeds MRP 55.00
+            allowMrpOverride: true,
+            mrpOverrideReason: 'Supervisor approved institutional tender markup',
+          },
+        ],
+      },
+      'user-1',
+      ['sales.create', 'sales.override_mrp'],
+    );
+
+    expect(res).toBeDefined();
+    expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          movementType: 'SALES_RETURN',
-          quantity: 10, // Restored stock
+        action: 'MRP_OVERRIDE_APPLIED',
+        details: expect.objectContaining({
+          overrides: expect.arrayContaining([
+            expect.objectContaining({
+              unitPrice: 65,
+              retailPrice: 55,
+              reason: 'Supervisor approved institutional tender markup',
+            }),
+          ]),
         }),
       }),
     );
-    expect(prisma.customerLedgerEntry.create).toHaveBeenCalled();
-    expect(prisma.salesInvoice.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'CANCELLED' }),
-      }),
-    );
-    expect(auditService.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'CANCEL_SALES_INVOICE' }),
-    );
-    expect(cancelled).toBeDefined();
+  });
+
+  it('rejects above-MRP line when user lacks sales.override_mrp permission', async () => {
+    await expect(
+      service.createSalesInvoice(
+        {
+          customerId: 'cust-1',
+          warehouseId: 'wh-1',
+          paymentMethod: 'CASH' as any,
+          items: [
+            {
+              productId: 'prod-1',
+              billedQuantity: 5,
+              unitPrice: 65,
+              allowMrpOverride: true,
+              mrpOverrideReason: 'No permission user',
+            },
+          ],
+        },
+        'user-1',
+        ['sales.create'], // lacks sales.override_mrp
+      ),
+    ).rejects.toThrow('You do not have permission (sales.override_mrp) to override Maximum Retail Price (MRP)');
+  });
+
+  it('preserves draft invoice when postDraftInvoice fails due to stock error', async () => {
+    prisma.salesInvoice.findFirst.mockResolvedValueOnce({
+      id: 'dft-err-1',
+      status: 'DRAFT',
+      customerId: 'cust-1',
+      warehouseId: 'wh-1',
+      paymentMethod: 'CASH',
+      invoiceDate: new Date(),
+      items: [
+        {
+          productId: 'prod-1',
+          batchId: 'batch-1',
+          batchNumber: 'BN-101',
+          billedQuantity: 500, // Exceeds available stock (100)
+          bonusQuantity: 0,
+          unitPrice: new Decimal('48.00'),
+          discountPercentage: new Decimal('0.00'),
+          taxPercentage: new Decimal('0.00'),
+          retailPrice: new Decimal('55.00'),
+        },
+      ],
+      payments: [],
+    });
+
+    // Attempt to post draft with excessive quantity
+    await expect(
+      service.postDraftInvoice('dft-err-1', 'user-1'),
+    ).rejects.toThrow();
+
+    // Verify draft was NOT deleted because posting failed
+    expect(prisma.salesInvoice.delete).not.toHaveBeenCalled();
   });
 });

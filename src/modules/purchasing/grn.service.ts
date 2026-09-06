@@ -71,8 +71,8 @@ export class GrnService {
         receivedQuantity: item.receivedQuantity,
         bonusQuantity: item.bonusQuantity ? Math.max(0, item.bonusQuantity) : 0,
         unitCost: new Prisma.Decimal(item.unitCost),
-        tradePrice: new Prisma.Decimal(item.tradePrice),
-        retailPrice: new Prisma.Decimal(item.retailPrice),
+        tradePrice: new Prisma.Decimal(item.tradePrice || 0),
+        retailPrice: new Prisma.Decimal(item.retailPrice || 0),
         discountPercentage: new Prisma.Decimal(discountPct),
         taxPercentage: new Prisma.Decimal(taxPct),
         lineTotal: new Prisma.Decimal(lineTotal),
@@ -93,19 +93,30 @@ export class GrnService {
 
   /**
    * Validates dates for items (mfgDate < expiryDate, expiryDate in future).
+   * Hard rejects expired batches (today or earlier).
+   * Generates advisory warnings for near-expiry batches below minShelfLifeDays.
    */
-  private validateDates(items: CreateGoodsReceiveNoteDto['items']) {
+  private validateDates(
+    items: CreateGoodsReceiveNoteDto['items'],
+    minShelfLifeDays: number = 30,
+  ): string[] {
+    const warnings: string[] = [];
     const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
     for (const item of items) {
       const expiry = new Date(item.expiryDate);
       if (isNaN(expiry.getTime())) {
         throw new BadRequestException(`Invalid expiry date for batch "${item.batchNumber}"`);
       }
-      if (expiry <= now) {
+
+      const expiryDay = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate());
+      if (expiryDay.getTime() <= todayStart.getTime()) {
         throw new BadRequestException(
-          `Expiry date for batch "${item.batchNumber}" must be in the future`,
+          `Expiry date for batch "${item.batchNumber}" must be in the future (today or earlier is expired)`,
         );
       }
+
       if (item.mfgDate) {
         const mfg = new Date(item.mfgDate);
         if (isNaN(mfg.getTime())) {
@@ -117,7 +128,17 @@ export class GrnService {
           );
         }
       }
+
+      const diffMs = expiry.getTime() - now.getTime();
+      const daysRemaining = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (daysRemaining < minShelfLifeDays) {
+        warnings.push(
+          `Batch "${item.batchNumber}" has only ${daysRemaining} days of remaining shelf life (less than configured minimum of ${minShelfLifeDays} days).`,
+        );
+      }
     }
+
+    return warnings;
   }
 
   /**
@@ -130,7 +151,20 @@ export class GrnService {
       throw new BadRequestException('GRN must contain at least one line item');
     }
 
-    this.validateDates(dto.items);
+    // Load MIN_REMAINING_SHELF_LIFE_DAYS system setting
+    const minShelfLifeSetting = await this.prisma.systemSetting.findUnique({
+      where: {
+        organizationId_key: {
+          organizationId: orgId,
+          key: 'MIN_REMAINING_SHELF_LIFE_DAYS',
+        },
+      },
+    });
+    const minShelfLifeDays = minShelfLifeSetting
+      ? parseInt(minShelfLifeSetting.value, 10)
+      : 30;
+
+    const warnings = this.validateDates(dto.items, minShelfLifeDays);
 
     // 1. Verify branch & warehouse hierarchy
     const warehouse = await this.prisma.warehouse.findFirst({
@@ -243,7 +277,10 @@ export class GrnService {
       },
     });
 
-    return grn;
+    return {
+      ...grn,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
   }
 
   /**
@@ -373,8 +410,22 @@ export class GrnService {
       );
     }
 
+    // Load MIN_REMAINING_SHELF_LIFE_DAYS system setting
+    const minShelfLifeSetting = await this.prisma.systemSetting.findUnique({
+      where: {
+        organizationId_key: {
+          organizationId: orgId,
+          key: 'MIN_REMAINING_SHELF_LIFE_DAYS',
+        },
+      },
+    });
+    const minShelfLifeDays = minShelfLifeSetting
+      ? parseInt(minShelfLifeSetting.value, 10)
+      : 30;
+
+    let warnings: string[] = [];
     if (dto.items && dto.items.length > 0) {
-      this.validateDates(dto.items);
+      warnings = this.validateDates(dto.items, minShelfLifeDays);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -437,7 +488,10 @@ export class GrnService {
         },
       });
 
-      return updated;
+      return {
+        ...updated,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
     });
   }
 
@@ -600,6 +654,14 @@ export class GrnService {
           throw new BadRequestException('Physical stock movement quantity must be strictly positive');
         }
 
+        // Effective unit cost weighted by total physical units received:
+        // (receivedQuantity * unitCost) / (receivedQuantity + bonusQuantity)
+        // GoodsReceiveNoteItem.unitCost remains unchanged for invoice payable
+        const effectiveUnitCost =
+          totalPhysicalQuantity > 0
+            ? (item.receivedQuantity * Number(item.unitCost)) / totalPhysicalQuantity
+            : Number(item.unitCost);
+
         await tx.stockMovement.create({
           data: {
             organizationId: orgId,
@@ -609,10 +671,10 @@ export class GrnService {
             batchId: batch.id,
             movementType: StockMovementType.PURCHASE_RECEIPT,
             quantity: totalPhysicalQuantity, // Inflow (+)
-            unitCost: item.unitCost, // Authoritative historical unit cost snapshot
+            unitCost: new Prisma.Decimal(effectiveUnitCost), // Effective acquisition cost snapshot
             referenceType: 'GOODS_RECEIVE_NOTE',
             referenceId: grn.id,
-            notes: `Receipt via GRN ${documentNumber} (Paid: ${item.receivedQuantity}, Bonus: ${item.bonusQuantity})`,
+            notes: `Receipt via GRN ${documentNumber} (Paid: ${item.receivedQuantity}, Bonus: ${item.bonusQuantity}, Effective Cost: Rs.${effectiveUnitCost.toFixed(2)})`,
             createdByUserId: userId,
           },
         });

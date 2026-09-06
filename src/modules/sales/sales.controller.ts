@@ -49,7 +49,12 @@ export class SalesController {
     @Body() dto: CreateSalesInvoiceDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.salesService.createSalesInvoice(dto, user?.userId);
+    return this.salesService.createSalesInvoice(
+      dto,
+      user?.userId,
+      user?.permissions,
+      user?.roles,
+    );
   }
 
   @Post('invoices/:id/post')
@@ -58,7 +63,12 @@ export class SalesController {
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.salesService.postDraftInvoice(id, user?.userId);
+    return this.salesService.postDraftInvoice(
+      id,
+      user?.userId,
+      user?.permissions,
+      user?.roles,
+    );
   }
 
   @Post('invoices/:id/cancel')

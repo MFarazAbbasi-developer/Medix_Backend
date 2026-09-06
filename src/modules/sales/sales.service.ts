@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -38,6 +39,8 @@ export interface ResolvedLineAllocation {
   schemeId?: string | null;
   schemeName?: string | null;
   remarks?: string;
+  mrpOverridden?: boolean;
+  mrpOverrideReason?: string | null;
 }
 
 @Injectable()
@@ -195,12 +198,31 @@ export class SalesService {
   /**
    * Creates and optionally immediately posts a sales invoice.
    */
-  async createSalesInvoice(dto: CreateSalesInvoiceDto, userId?: string) {
+  async createSalesInvoice(
+    dto: CreateSalesInvoiceDto,
+    userId?: string,
+    userPermissions?: string[],
+    userRoles?: string[],
+  ) {
     const organizationId = await this.getOrganizationId();
     const branchId = await this.getDefaultBranchId(organizationId);
 
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Sales invoice must contain at least one item');
+    }
+
+    // Check MRP override permission server-side if requested
+    const hasMrpOverride = dto.items.some((it) => it.allowMrpOverride);
+    if (hasMrpOverride) {
+      const canOverride =
+        userRoles?.includes('ADMIN') ||
+        userPermissions?.includes('sales.override_mrp') ||
+        false;
+      if (!canOverride) {
+        throw new ForbiddenException(
+          'You do not have permission (sales.override_mrp) to override Maximum Retail Price (MRP)',
+        );
+      }
     }
 
     // If marked as DRAFT, save parked bill without locking or stock deduction
@@ -215,7 +237,12 @@ export class SalesService {
   /**
    * Promotes an existing DRAFT invoice to POSTED.
    */
-  async postDraftInvoice(invoiceId: string, userId?: string) {
+  async postDraftInvoice(
+    invoiceId: string,
+    userId?: string,
+    userPermissions?: string[],
+    userRoles?: string[],
+  ) {
     const organizationId = await this.getOrganizationId();
     const branchId = await this.getDefaultBranchId(organizationId);
 
@@ -236,20 +263,34 @@ export class SalesService {
       );
     }
 
+    // Build posting DTO:
+    // Automatic/FEFO drafts (saved with AUTO or empty batch) receive fresh FEFO allocation (batchId = undefined).
+    // If the user explicitly selected a batch, preserve that batch ID so postInvoiceTransaction locks & revalidates it.
     const dto: CreateSalesInvoiceDto = {
       customerId: draft.customerId,
       warehouseId: draft.warehouseId,
       paymentMethod: draft.paymentMethod,
       invoiceDate: draft.invoiceDate.toISOString(),
-      items: draft.items.map((it) => ({
-        productId: it.productId,
-        batchId: it.batchId,
-        billedQuantity: it.billedQuantity,
-        bonusQuantity: it.bonusQuantity,
-        unitPrice: Number(it.unitPrice),
-        discountPercentage: Number(it.discountPercentage),
-        taxPercentage: Number(it.taxPercentage),
-      })),
+      items: draft.items.map((it) => {
+        const isAutoFefo =
+          it.pricingSource === 'AUTO_FEFO' ||
+          it.batchNumber === 'AUTO' ||
+          !it.batchId;
+
+        const isAboveMrp = Number(it.unitPrice) > Number(it.retailPrice) && Number(it.retailPrice) > 0;
+
+        return {
+          productId: it.productId,
+          batchId: isAutoFefo ? undefined : it.batchId,
+          billedQuantity: it.billedQuantity,
+          bonusQuantity: it.bonusQuantity,
+          unitPrice: Number(it.unitPrice),
+          discountPercentage: Number(it.discountPercentage),
+          taxPercentage: Number(it.taxPercentage),
+          allowMrpOverride: isAboveMrp,
+          mrpOverrideReason: isAboveMrp ? 'Draft line MRP override' : undefined,
+        };
+      }),
       payments: draft.payments.map((p) => ({
         paymentMethod: p.paymentMethod,
         amount: Number(p.amount),
@@ -260,9 +301,33 @@ export class SalesService {
       isDraft: false,
     };
 
-    // Delete draft and post cleanly within transaction
+    // Check MRP override permissions for draft items
+    const hasMrpOverride = dto.items.some((it) => it.allowMrpOverride);
+    if (hasMrpOverride) {
+      const canOverride =
+        userRoles?.includes('ADMIN') ||
+        userPermissions?.includes('sales.override_mrp') ||
+        false;
+      if (!canOverride) {
+        throw new ForbiddenException(
+          'You do not have permission (sales.override_mrp) to override Maximum Retail Price (MRP)',
+        );
+      }
+    }
+
+    // Execute atomic posting transaction FIRST.
+    // If post fails (e.g. stock shortfall or expired batch), draft remains safe!
+    const postedInvoice = await this.postInvoiceTransaction(
+      organizationId,
+      branchId,
+      userId,
+      dto,
+    );
+
+    // Only delete draft AFTER successful posting transaction
     await this.prisma.salesInvoice.delete({ where: { id: invoiceId } });
-    return this.postInvoiceTransaction(organizationId, branchId, userId, dto);
+
+    return postedInvoice;
   }
 
   /**
@@ -552,10 +617,11 @@ export class SalesService {
       totalDiscount += discAmt;
       totalTax += taxAmt;
 
+      const isAutoFefo = !item.batchId;
       draftItemsData.push({
         productId: item.productId,
         batchId: batch ? batch.id : '',
-        batchNumber: batch ? batch.batchNumber : 'AUTO',
+        batchNumber: isAutoFefo ? 'AUTO' : (batch ? batch.batchNumber : 'AUTO'),
         expiryDate: batch ? batch.expiryDate : new Date(),
         billedQuantity: billedQty,
         bonusQuantity: bonusQty,
@@ -571,7 +637,7 @@ export class SalesService {
         lineTotal: new Prisma.Decimal(lineTotal),
         lineCost: new Prisma.Decimal(lineCost),
         lineProfit: new Prisma.Decimal(taxable - lineCost),
-        pricingSource: resolution?.pricingSource || null,
+        pricingSource: isAutoFefo ? 'AUTO_FEFO' : (resolution?.pricingSource || null),
         pricingRuleId: resolution?.pricingRuleId || null,
         schemeId: resolution?.schemeId || null,
         schemeName: resolution?.schemeName || null,
@@ -817,6 +883,8 @@ export class SalesService {
             manualDiscountPct: itemDto.discountPercentage,
             manualTaxPct: itemDto.taxPercentage,
             remarks: itemDto.remarks,
+            allowMrpOverride: itemDto.allowMrpOverride,
+            mrpOverrideReason: itemDto.mrpOverrideReason,
           });
           resolvedLines.push(resolved);
         } else {
@@ -866,6 +934,8 @@ export class SalesService {
               manualDiscountPct: itemDto.discountPercentage,
               manualTaxPct: itemDto.taxPercentage,
               remarks: itemDto.remarks,
+              allowMrpOverride: itemDto.allowMrpOverride,
+              mrpOverrideReason: itemDto.mrpOverrideReason,
             });
             resolvedLines.push(resolved);
           }
@@ -927,26 +997,43 @@ export class SalesService {
       const balanceAmount = Math.max(0, netTotal - paidAmount);
       const grossProfit = netTotal - totalTax - totalCostPrice;
 
-      // 5. Credit Limit Validation (if balance amount left to bill on credit account)
+      // 5. Credit Limit Validation (Soft warning vs Hard blocking via ENFORCE_CREDIT_LIMIT setting)
+      const creditWarnings: string[] = [];
       if (balanceAmount > 0) {
         const creditDays = Number(lockedCustomer.credit_days);
         const creditLimit = Number(lockedCustomer.credit_limit);
         const currentBalance = Number(lockedCustomer.current_balance);
 
+        // Fetch ENFORCE_CREDIT_LIMIT system setting
+        const enforceCreditSetting = await tx.systemSetting.findUnique({
+          where: {
+            organizationId_key: {
+              organizationId,
+              key: 'ENFORCE_CREDIT_LIMIT',
+            },
+          },
+        });
+        const enforceCreditLimit = enforceCreditSetting?.value === 'true';
+
+        // Strict invariant: Walk-in customers cannot purchase on credit
         if (creditDays <= 0 && lockedCustomer.customer_type === 'WALK_IN') {
           throw new BadRequestException(
             'Walk-in cash customers cannot purchase on credit. Full payment required at checkout.',
           );
         }
 
-        if (currentBalance + balanceAmount > creditLimit) {
-          throw new BadRequestException(
-            `Sale exceeds customer credit limit! Current balance: Rs.${currentBalance.toFixed(
-              2,
-            )}, New unpaid balance: Rs.${balanceAmount.toFixed(
-              2,
-            )}, Credit Limit: Rs.${creditLimit.toFixed(2)}`,
-          );
+        if (creditLimit > 0 && currentBalance + balanceAmount > creditLimit) {
+          const warnMsg = `Sale exceeds customer credit limit! Current balance: Rs.${currentBalance.toFixed(
+            2,
+          )}, New unpaid balance: Rs.${balanceAmount.toFixed(
+            2,
+          )}, Credit Limit: Rs.${creditLimit.toFixed(2)}`;
+
+          if (enforceCreditLimit) {
+            throw new BadRequestException(warnMsg);
+          } else {
+            creditWarnings.push(warnMsg);
+          }
         }
       }
 
@@ -1091,7 +1178,7 @@ export class SalesService {
         data: { currentBalance: new Prisma.Decimal(runningBalance) },
       });
 
-      // 13. Audit Log
+      // 13. Audit Log - Post Sales Invoice
       await this.audit.log({
         userId,
         action: 'POST_SALES_INVOICE',
@@ -1109,7 +1196,33 @@ export class SalesService {
         },
       });
 
-      return invoice;
+      // 14. Audit Log - MRP Overrides (if any)
+      const mrpOverrides = resolvedLines.filter((l) => l.mrpOverridden);
+      if (mrpOverrides.length > 0) {
+        await this.audit.log({
+          userId,
+          action: 'MRP_OVERRIDE_APPLIED',
+          entity: 'SALES_INVOICE',
+          entityId: invoice.id,
+          details: {
+            invoiceNumber,
+            customerId: lockedCustomer.id,
+            overrides: mrpOverrides.map((o) => ({
+              productId: o.productId,
+              batchId: o.batchId,
+              batchNumber: o.batchNumber,
+              unitPrice: o.unitPrice,
+              retailPrice: o.retailPrice,
+              reason: o.mrpOverrideReason,
+            })),
+          },
+        });
+      }
+
+      return {
+        ...invoice,
+        creditWarnings: creditWarnings.length > 0 ? creditWarnings : undefined,
+      };
     });
   }
 
@@ -1130,6 +1243,8 @@ export class SalesService {
     manualDiscountPct?: number;
     manualTaxPct?: number;
     remarks?: string;
+    allowMrpOverride?: boolean;
+    mrpOverrideReason?: string;
   }): ResolvedLineAllocation {
     const {
       product,
@@ -1145,6 +1260,8 @@ export class SalesService {
       manualDiscountPct,
       manualTaxPct,
       remarks,
+      allowMrpOverride,
+      mrpOverrideReason,
     } = params;
 
     const allRules = customRule ? [customRule, ...pricingRules] : pricingRules;
@@ -1160,6 +1277,8 @@ export class SalesService {
       manualUnitPrice,
       manualDiscountPercentage: manualDiscountPct,
       manualTaxPercentage: manualTaxPct,
+      allowMrpOverride,
+      mrpOverrideReason,
     });
 
     const totalQuantity = billedQuantity + bonusQuantity;
@@ -1191,6 +1310,8 @@ export class SalesService {
       schemeId: resolution.schemeId,
       schemeName: resolution.schemeName,
       remarks,
+      mrpOverridden: resolution.mrpOverridden,
+      mrpOverrideReason: resolution.mrpOverrideReason,
     };
   }
 

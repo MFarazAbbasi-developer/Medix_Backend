@@ -213,6 +213,8 @@ async function main() {
     { key: 'defaultBranchId', value: hoBranch.id, dataType: SettingDataType.STRING, group: 'GENERAL', description: 'Default active branch' },
     { key: 'allowNegativeStock', value: 'false', dataType: SettingDataType.BOOLEAN, group: 'INVENTORY', description: 'Enforce strict non-negative inventory' },
     { key: 'DEFAULT_SALES_PRICING_BASE', value: 'TP', dataType: SettingDataType.STRING, group: 'SALES', description: 'Default pricing base (TP/MRP)' },
+    { key: 'ENFORCE_CREDIT_LIMIT', value: 'false', dataType: SettingDataType.BOOLEAN, group: 'SALES', description: 'Enforce strict customer credit limit blocking (false = soft warning)' },
+    { key: 'MIN_REMAINING_SHELF_LIFE_DAYS', value: '30', dataType: SettingDataType.NUMBER, group: 'PURCHASING', description: 'Minimum remaining shelf life threshold in days for GRN warning' },
   ];
 
   for (const s of defaultSettings) {
@@ -245,6 +247,7 @@ async function main() {
     { code: 'sales.create', description: 'Create sales invoice drafts' },
     { code: 'sales.post', description: 'Finalize and post sales invoices' },
     { code: 'sales.cancel', description: 'Cancel posted sales invoices' },
+    { code: 'sales.override_mrp', description: 'Override Maximum Retail Price (MRP) ceiling with justification' },
     { code: 'returns.view', description: 'View sales and purchase returns' },
     { code: 'returns.manage', description: 'Create and post returns' },
     { code: 'payments.view', description: 'View customer and supplier payment vouchers' },

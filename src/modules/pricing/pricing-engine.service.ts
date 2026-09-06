@@ -21,6 +21,8 @@ export interface ResolvePricingParams {
   manualDiscountPercentage?: number | null;
   manualTaxPercentage?: number | null;
   asOfDate?: Date;
+  allowMrpOverride?: boolean;
+  mrpOverrideReason?: string;
 }
 
 export interface PricingResolutionResult {
@@ -48,6 +50,8 @@ export interface PricingResolutionResult {
   schemeId?: string | null;
   schemeName?: string | null;
   reason: string;
+  mrpOverridden?: boolean;
+  mrpOverrideReason?: string | null;
 }
 
 @Injectable()
@@ -230,14 +234,28 @@ export class PricingEngineService {
     const discountAmountPerUnit = baseUnitPrice * (discountPercentage / 100);
     const effectiveUnitPrice = Math.max(0, baseUnitPrice - discountAmountPerUnit);
 
-    // MRP Ceiling Validation: Invariant check
+    // MRP Ceiling Validation: Invariant check (overrideable only with permission and reason)
+    let mrpOverridden = false;
+    let mrpOverrideReason: string | null = null;
     if (batch && retailPrice > 0) {
       if (baseUnitPrice > retailPrice || effectiveUnitPrice > retailPrice) {
-        throw new BadRequestException(
-          `Resolved selling price (Rs.${effectiveUnitPrice.toFixed(
-            2,
-          )}) exceeds Maximum Retail Price (MRP Rs.${retailPrice.toFixed(2)}) for product "${product.name}"`,
-        );
+        if (params.allowMrpOverride) {
+          if (!params.mrpOverrideReason || !params.mrpOverrideReason.trim()) {
+            throw new BadRequestException(
+              `MRP override requires a valid justification reason for product "${product.name}"`,
+            );
+          }
+          mrpOverridden = true;
+          mrpOverrideReason = params.mrpOverrideReason.trim();
+          pricingSource = 'MANUAL_OVERRIDE';
+          reason = `MRP override applied (${mrpOverrideReason}) - ` + reason;
+        } else {
+          throw new BadRequestException(
+            `Resolved selling price (Rs.${effectiveUnitPrice.toFixed(
+              2,
+            )}) exceeds Maximum Retail Price (MRP Rs.${retailPrice.toFixed(2)}) for product "${product.name}"`,
+          );
+        }
       }
     }
 
@@ -285,6 +303,8 @@ export class PricingEngineService {
       schemeId,
       schemeName,
       reason,
+      mrpOverridden,
+      mrpOverrideReason,
     };
   }
 }

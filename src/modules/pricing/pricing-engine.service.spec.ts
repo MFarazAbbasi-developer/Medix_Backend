@@ -372,8 +372,8 @@ describe('PricingEngineService', () => {
     });
   });
 
-  describe('6. MRP Ceiling Constraint', () => {
-    it('should reject prices that exceed retail price (MRP ceiling)', () => {
+  describe('6. MRP Ceiling Constraint & Overrides', () => {
+    it('should reject prices that exceed retail price (MRP ceiling) by default', () => {
       const invalidCustomRule: any = {
         id: 'rule-invalid',
         customerId: 'cust-001',
@@ -391,6 +391,37 @@ describe('PricingEngineService', () => {
           pricingRules: [invalidCustomRule],
         }),
       ).toThrow(BadRequestException);
+    });
+
+    it('should allow above-MRP price when allowMrpOverride is true with a valid justification reason', () => {
+      const res = service.resolvePricing({
+        product: mockProduct,
+        batch: mockBatch, // retailPrice = 250.0
+        customer: mockCustomer,
+        quantity: 5,
+        manualUnitPrice: 280.0, // Exceeds MRP (250)
+        allowMrpOverride: true,
+        mrpOverrideReason: 'Emergency after-hours hospital delivery markup approved by supervisor',
+      });
+
+      expect(res.mrpOverridden).toBe(true);
+      expect(res.mrpOverrideReason).toBe('Emergency after-hours hospital delivery markup approved by supervisor');
+      expect(res.baseUnitPrice).toBe(280.0);
+      expect(res.pricingSource).toBe('MANUAL_OVERRIDE');
+    });
+
+    it('should reject above-MRP price when allowMrpOverride is true but reason is empty or whitespace', () => {
+      expect(() =>
+        service.resolvePricing({
+          product: mockProduct,
+          batch: mockBatch,
+          customer: mockCustomer,
+          quantity: 5,
+          manualUnitPrice: 280.0,
+          allowMrpOverride: true,
+          mrpOverrideReason: '   ',
+        }),
+      ).toThrow('MRP override requires a valid justification reason');
     });
   });
 });

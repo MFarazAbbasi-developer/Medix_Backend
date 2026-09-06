@@ -62,6 +62,9 @@ describe('Purchasing Module Services', () => {
         findMany: vi.fn().mockResolvedValue([mockProduct]),
         findFirst: vi.fn().mockResolvedValue(mockProduct),
       },
+      systemSetting: {
+        findUnique: vi.fn().mockResolvedValue({ value: '30' }),
+      },
       batch: {
         findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({
@@ -303,7 +306,57 @@ describe('Purchasing Module Services', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should post a GRN atomically with stock movement, supplier credit, and row locks', async () => {
+    it('should reject GRN creation if expiry date is today or in the past', async () => {
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 1);
+
+      await expect(
+        grnService.create({
+          branchId: 'branch-1',
+          warehouseId: 'wh-1',
+          supplierId: 'sup-1',
+          items: [
+            {
+              productId: 'prod-1',
+              batchNumber: 'BN-EXPIRED',
+              expiryDate: pastDate.toISOString().split('T')[0],
+              receivedQuantity: 50,
+              unitCost: 40,
+              tradePrice: 45,
+              retailPrice: 50,
+            },
+          ],
+        }),
+      ).rejects.toThrow('must be in the future (today or earlier is expired)');
+    });
+
+    it('should return advisory warnings for near-expiry batches below MIN_REMAINING_SHELF_LIFE_DAYS', async () => {
+      const nearExpiryDate = new Date();
+      nearExpiryDate.setDate(nearExpiryDate.getDate() + 15); // 15 days < 30 days threshold
+
+      const grn = await grnService.create({
+        branchId: 'branch-1',
+        warehouseId: 'wh-1',
+        supplierId: 'sup-1',
+        items: [
+          {
+            productId: 'prod-1',
+            batchNumber: 'BN-NEAR-EXP',
+            expiryDate: nearExpiryDate.toISOString().split('T')[0],
+            receivedQuantity: 50,
+            unitCost: 40,
+            tradePrice: 45,
+            retailPrice: 50,
+          },
+        ],
+      });
+
+      expect(grn.warnings).toBeDefined();
+      expect(grn.warnings?.length).toBeGreaterThan(0);
+      expect(grn.warnings?.[0]).toContain('remaining shelf life');
+    });
+
+    it('should post a GRN with bonus costing weighted average acquisition cost in StockMovement', async () => {
       const posted = await grnService.postGrn('grn-1', 'user-1');
 
       // 1. Permanent numbering
@@ -313,11 +366,14 @@ describe('Purchasing Module Services', () => {
       );
 
       // 2. Stock movement inflow (+110 total units: 100 paid + 10 bonus)
+      // Effective cost = (100 * 40) / 110 = 36.3636...
+      const expectedEffectiveCost = new Decimal((100 * 40) / 110);
       expect(prisma.stockMovement.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             movementType: StockMovementType.PURCHASE_RECEIPT,
             quantity: 110,
+            unitCost: expect.any(Object),
             referenceType: 'GOODS_RECEIVE_NOTE',
           }),
         }),

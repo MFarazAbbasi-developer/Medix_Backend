@@ -53,6 +53,14 @@ export class CreateSalesInvoiceItemDto {
   @Type(() => Number)
   taxPercentage?: number;
 
+  @IsBoolean()
+  @IsOptional()
+  allowMrpOverride?: boolean;
+
+  @IsString()
+  @IsOptional()
+  mrpOverrideReason?: string;
+
   @IsString()
   @IsOptional()
   remarks?: string;
