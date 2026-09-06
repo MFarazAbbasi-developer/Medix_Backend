@@ -57,6 +57,10 @@ model User {
   cancelledSupplierPayments SupplierPayment[]     @relation("SupplierPaymentCancelledBy")
   postedPurchaseReturns     PurchaseReturn[]      @relation("PurchaseReturnPostedBy")
   cancelledPurchaseReturns  PurchaseReturn[]      @relation("PurchaseReturnCancelledBy")
+  createdStockTransfers     StockTransfer[]       @relation("StockTransferCreatedBy")
+  dispatchedStockTransfers  StockTransfer[]       @relation("StockTransferDispatchedBy")
+  receivedStockTransfers    StockTransfer[]       @relation("StockTransferReceivedBy")
+  cancelledStockTransfers   StockTransfer[]       @relation("StockTransferCancelledBy")
 
   @@map("users")
 }
@@ -135,6 +139,7 @@ enum DocumentType {
   PAYMENT_RECEIPT
   GOODS_RECEIVE_NOTE
   STOCK_ADJUSTMENT
+  STOCK_TRANSFER
 }
 
 enum SettingDataType {
@@ -187,6 +192,7 @@ model Organization {
   supplierPayments      SupplierPayment[]
   purchaseReturns       PurchaseReturn[]
   promotionalSchemes    PromotionalScheme[]
+  stockTransfers        StockTransfer[]
 
   @@map("organizations")
 }
@@ -220,6 +226,7 @@ model Branch {
   salesReturns          SalesReturn[]
   supplierPayments      SupplierPayment[]
   purchaseReturns       PurchaseReturn[]
+  stockTransfers        StockTransfer[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -381,6 +388,7 @@ model Product {
   purchaseReturnItems     PurchaseReturnItem[]
   promotionalSchemes      PromotionalScheme[]    @relation("SchemeProduct")
   bonusPromotionalSchemes PromotionalScheme[]    @relation("SchemeBonusProduct")
+  stockTransferItems      StockTransferItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -411,6 +419,7 @@ model Batch {
   salesInvoiceItems     SalesInvoiceItem[]
   salesReturnItems      SalesReturnItem[]
   purchaseReturnItems   PurchaseReturnItem[]
+  stockTransferItems    StockTransferItem[]
 
   @@unique([productId, batchNumber])
   @@index([productId, expiryDate])
@@ -437,14 +446,16 @@ model Warehouse {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  stockMovements      StockMovement[]
-  stockAdjustments    StockAdjustment[]
-  goodsReceiveNotes   GoodsReceiveNote[]
-  salesInvoices       SalesInvoice[]
-  salesReturnItems    SalesReturnItem[]
-  purchaseReturnItems PurchaseReturnItem[]
+  organization              Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch                    Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  stockMovements            StockMovement[]
+  stockAdjustments          StockAdjustment[]
+  goodsReceiveNotes         GoodsReceiveNote[]
+  salesInvoices             SalesInvoice[]
+  salesReturnItems          SalesReturnItem[]
+  purchaseReturnItems       PurchaseReturnItem[]
+  sourceStockTransfers      StockTransfer[]      @relation("SourceStockTransfers")
+  destinationStockTransfers StockTransfer[]      @relation("DestinationStockTransfers")
 
   @@unique([branchId, code])
   @@map("warehouses")
@@ -1403,4 +1414,81 @@ model SalesReturnItem {
   @@index([salesReturnId])
   @@index([salesInvoiceItemId])
   @@map("sales_return_items")
+}
+
+enum StockTransferStatus {
+  DRAFT
+  DISPATCHED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+/// Stock Transfer between warehouses
+model StockTransfer {
+  id                     String              @id @default(uuid())
+  organizationId         String              @map("organization_id")
+  branchId               String              @map("branch_id")
+  transferNumber         String              @map("transfer_number")
+  sourceWarehouseId      String              @map("source_warehouse_id")
+  destinationWarehouseId String              @map("destination_warehouse_id")
+  transferDate           DateTime            @default(now()) @map("transfer_date")
+  status                 StockTransferStatus @default(DRAFT)
+  notes                  String?
+
+  createdById         String?   @map("created_by_id")
+  dispatchedById      String?   @map("dispatched_by_id")
+  dispatchedAt        DateTime? @map("dispatched_at")
+  receivedById        String?   @map("received_by_id")
+  receivedAt          DateTime? @map("received_at")
+  cancelledById       String?   @map("cancelled_by_id")
+  cancelledAt         DateTime? @map("cancelled_at")
+  cancellationReason  String?   @map("cancellation_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch               Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sourceWarehouse      Warehouse    @relation("SourceStockTransfers", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  destinationWarehouse Warehouse    @relation("DestinationStockTransfers", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  createdByUser        User?        @relation("StockTransferCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  dispatchedByUser     User?        @relation("StockTransferDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  receivedByUser       User?        @relation("StockTransferReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  cancelledByUser      User?        @relation("StockTransferCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  items StockTransferItem[]
+
+  @@unique([organizationId, transferNumber])
+  @@index([organizationId, branchId, transferDate])
+  @@index([sourceWarehouseId])
+  @@index([destinationWarehouseId])
+  @@index([status])
+  @@map("stock_transfers")
+}
+
+/// Stock Transfer Line Item
+model StockTransferItem {
+  id                 String   @id @default(uuid())
+  stockTransferId    String   @map("stock_transfer_id")
+  productId          String   @map("product_id")
+  batchId            String   @map("batch_id")
+  batchNumber        String   @map("batch_number")
+  expiryDate         DateTime @map("expiry_date")
+  requestedQuantity  Int      @map("requested_quantity")
+  dispatchedQuantity Int      @default(0) @map("dispatched_quantity")
+  receivedQuantity   Int      @default(0) @map("received_quantity")
+  unitCost           Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  stockTransfer StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch         Batch         @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@index([stockTransferId])
+  @@index([productId])
+  @@index([batchId])
+  @@map("stock_transfer_items")
 }

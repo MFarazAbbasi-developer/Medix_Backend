@@ -225,6 +225,28 @@ export const INITIAL_PERMISSIONS = [
     description: 'Manually override automated pricing and discounts on sales invoices',
   },
 
+  // Stock Transfers
+  {
+    code: 'transfers.view',
+    description: 'View warehouse stock transfers and in-transit records',
+  },
+  {
+    code: 'transfers.manage',
+    description: 'Create and edit draft stock transfers',
+  },
+  {
+    code: 'transfers.dispatch',
+    description: 'Dispatch stock transfers and release inventory into transit',
+  },
+  {
+    code: 'transfers.receive',
+    description: 'Receive and verify stock transfers into destination warehouses',
+  },
+  {
+    code: 'transfers.cancel',
+    description: 'Cancel stock transfers with automated stock reversal',
+  },
+
   // Reporting & Audit
   {
     code: 'reports.view',

@@ -91,6 +91,7 @@ export class AuthSeedService implements OnApplicationBootstrap {
       { documentType: 'PAYMENT_RECEIPT' as const, prefix: 'REC-', padding: 5 },
       { documentType: 'GOODS_RECEIVE_NOTE' as const, prefix: 'GRN-', padding: 5 },
       { documentType: 'STOCK_ADJUSTMENT' as const, prefix: 'ADJ-', padding: 5 },
+      { documentType: 'STOCK_TRANSFER' as const, prefix: 'TRF-', padding: 5 },
     ];
 
     for (const item of defaultSeriesList) {
