@@ -259,6 +259,8 @@ async function main() {
     { code: 'roles.manage', description: 'Configure roles and permission matrices' },
     { code: 'system.backup', description: 'Create, verify, and restore database backups' },
     { code: 'masterdata.manage', description: 'Manage products, batches, suppliers, and customers' },
+    { code: 'imports.view', description: 'View imports history, preview uploaded files, templates, and error reports' },
+    { code: 'imports.manage', description: 'Upload files, confirm/execute data imports, and cancel jobs' },
   ];
 
   for (const p of permissionsList) {

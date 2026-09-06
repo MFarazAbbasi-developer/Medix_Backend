@@ -320,6 +320,16 @@ export const INITIAL_PERMISSIONS = [
     code: 'data.export',
     description: 'Export master and transactional data to CSV',
   },
+
+  // Data Imports Engine
+  {
+    code: 'imports.view',
+    description: 'View imports history, preview uploaded files, templates, and error reports',
+  },
+  {
+    code: 'imports.manage',
+    description: 'Upload files, confirm/execute data imports, and cancel jobs',
+  },
 ] as const;
 
 export const PERMISSIONS_KEY = 'permissions';

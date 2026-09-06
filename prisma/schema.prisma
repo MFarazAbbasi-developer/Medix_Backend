@@ -64,6 +64,7 @@ model User {
   createdRecalls            ProductRecall[]       @relation("RecallCreatedBy")
   resolvedRecalls           ProductRecall[]       @relation("RecallResolvedBy")
   cancelledRecalls          ProductRecall[]       @relation("RecallCancelledBy")
+  createdImportJobs         ImportJob[]           @relation("ImportCreatedBy")
 
   @@map("users")
 }
@@ -198,6 +199,7 @@ model Organization {
   promotionalSchemes    PromotionalScheme[]
   stockTransfers        StockTransfer[]
   productRecalls        ProductRecall[]
+  importJobs            ImportJob[]
 
   @@map("organizations")
 }
@@ -232,6 +234,7 @@ model Branch {
   supplierPayments      SupplierPayment[]
   purchaseReturns       PurchaseReturn[]
   stockTransfers        StockTransfer[]
+  importJobs            ImportJob[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -1551,4 +1554,51 @@ model ProductRecall {
   @@map("product_recalls")
 }
 
+enum ImportType {
+  PRODUCTS
+  CUSTOMERS
+  SUPPLIERS
+  OPENING_STOCK
+  CUSTOMER_OPENING_BALANCES
+  SUPPLIER_OPENING_BALANCES
+}
 
+enum ImportJobStatus {
+  UPLOADED
+  VALIDATING
+  READY
+  IMPORTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// Durable Data Migration & Master Import Job History
+model ImportJob {
+  id               String          @id @default(uuid())
+  organizationId   String          @map("organization_id")
+  branchId         String?         @map("branch_id")
+  type             ImportType      @map("type")
+  status           ImportJobStatus @default(UPLOADED) @map("status")
+  originalFilename String          @map("original_filename")
+  totalRows        Int             @default(0) @map("total_rows")
+  validRows        Int             @default(0) @map("valid_rows")
+  invalidRows      Int             @default(0) @map("invalid_rows")
+  importedRows     Int             @default(0) @map("imported_rows")
+  failedRows       Int             @default(0) @map("failed_rows")
+  createdById      String?         @map("created_by_id")
+  startedAt        DateTime?       @map("started_at")
+  completedAt      DateTime?       @map("completed_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  metadata         Json?           @map("metadata")
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch        Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdByUser User?        @relation("ImportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, type])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("import_jobs")
+}
