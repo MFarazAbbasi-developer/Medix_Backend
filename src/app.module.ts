@@ -20,6 +20,8 @@ import { ProductModule } from './modules/product/product.module';
 import { BatchModule } from './modules/batch/batch.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { SupplierModule } from './modules/supplier/supplier.module';
+import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -74,6 +76,8 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     BatchModule,
     WarehouseModule,
     InventoryModule,
+    SupplierModule,
+    PurchasingModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -85,18 +85,44 @@ export const INITIAL_PERMISSIONS = [
     description: 'Cancel or void sales transactions',
   },
 
-  // Purchasing & Receiving (Foundational permissions for future module)
+  // Suppliers & Vendors
+  {
+    code: 'suppliers.view',
+    description: 'View supplier profiles and vendor directory',
+  },
+  {
+    code: 'suppliers.create',
+    description: 'Create new supplier master records',
+  },
+  {
+    code: 'suppliers.edit',
+    description: 'Edit supplier specifications and credit terms',
+  },
+  {
+    code: 'suppliers.ledger_view',
+    description: 'View supplier sub-ledger statements and payable balances',
+  },
+
+  // Purchasing & Receiving
   {
     code: 'purchases.view',
-    description: 'View purchase orders and goods receipts',
+    description: 'View purchase orders and goods receive notes',
   },
   {
     code: 'purchases.create',
-    description: 'Create purchase orders and record supplier receipts',
+    description: 'Create purchase orders and draft goods receive notes',
   },
   {
     code: 'purchases.edit',
-    description: 'Edit draft purchase orders and receiving entries',
+    description: 'Edit draft purchase orders and goods receive notes',
+  },
+  {
+    code: 'purchases.post_grn',
+    description: 'Post goods receive notes and receive stock into inventory',
+  },
+  {
+    code: 'purchases.cancel',
+    description: 'Cancel purchase orders or draft goods receive notes',
   },
 
   // Inventory Management

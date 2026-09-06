@@ -41,9 +41,11 @@ model User {
   updatedAt     DateTime       @updatedAt @map("updated_at")
   userRoles     UserRole[]
   refreshTokens RefreshToken[]
-  auditLogs         AuditLog[]
-  stockMovements    StockMovement[]
-  postedAdjustments StockAdjustment[]
+  auditLogs             AuditLog[]
+  stockMovements        StockMovement[]
+  postedAdjustments     StockAdjustment[]
+  postedGrns            GoodsReceiveNote[]
+  supplierLedgerEntries SupplierLedgerEntry[]
 
   @@map("users")
 }
@@ -116,6 +118,7 @@ model RefreshToken {
 enum DocumentType {
   SALES_INVOICE
   PURCHASE_INVOICE
+  PURCHASE_ORDER
   SALES_RETURN
   PURCHASE_RETURN
   PAYMENT_RECEIPT
@@ -150,16 +153,20 @@ model Organization {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  branches          Branch[]
-  numberingSeries   NumberingSeries[]
-  systemSettings    SystemSetting[]
-  manufacturers     Manufacturer[]
-  productCategories ProductCategory[]
-  unitsOfMeasurement UnitOfMeasurement[]
-  products          Product[]
-  warehouses        Warehouse[]
-  stockMovements    StockMovement[]
-  stockAdjustments  StockAdjustment[]
+  branches              Branch[]
+  numberingSeries       NumberingSeries[]
+  systemSettings        SystemSetting[]
+  manufacturers         Manufacturer[]
+  productCategories     ProductCategory[]
+  unitsOfMeasurement    UnitOfMeasurement[]
+  products              Product[]
+  warehouses            Warehouse[]
+  stockMovements        StockMovement[]
+  stockAdjustments      StockAdjustment[]
+  suppliers             Supplier[]
+  purchaseOrders        PurchaseOrder[]
+  goodsReceiveNotes     GoodsReceiveNote[]
+  supplierLedgerEntries SupplierLedgerEntry[]
 
   @@map("organizations")
 }
@@ -179,11 +186,14 @@ model Branch {
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  numberingSeries NumberingSeries[]
-  warehouses      Warehouse[]
-  stockMovements  StockMovement[]
-  stockAdjustments StockAdjustment[]
+  organization          Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  numberingSeries       NumberingSeries[]
+  warehouses            Warehouse[]
+  stockMovements        StockMovement[]
+  stockAdjustments      StockAdjustment[]
+  purchaseOrders        PurchaseOrder[]
+  goodsReceiveNotes     GoodsReceiveNote[]
+  supplierLedgerEntries SupplierLedgerEntry[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -312,31 +322,33 @@ model UnitOfMeasurement {
 
 /// Pharmaceutical Product / SKU Master model
 model Product {
-  id                  String                @id @default(uuid())
-  organizationId      String                @map("organization_id")
-  sku                 String                // User-defined SKU / Item Code
-  name                String                // Commercial Brand Name e.g. "Panadol 500mg"
-  genericName         String                @map("generic_name") // e.g. "Paracetamol"
-  manufacturerId      String?               @map("manufacturer_id")
-  categoryId          String?               @map("category_id")
-  unitId              String?               @map("unit_id")
-  dosageForm          String?               @map("dosage_form") // Flexible string e.g. "Tablet", "Syrup"
-  strength            String?               // e.g. "500mg", "250mg/5ml"
-  packSize            String?               @map("pack_size") // e.g. "10x10", "1x60ml"
-  barcode             String?
-  taxPercentage       Decimal               @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  description         String?
-  isActive            Boolean               @default(true) @map("is_active")
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
+  id                    String                 @id @default(uuid())
+  organizationId        String                 @map("organization_id")
+  sku                   String                 // User-defined SKU / Item Code
+  name                  String                 // Commercial Brand Name e.g. "Panadol 500mg"
+  genericName           String                 @map("generic_name") // e.g. "Paracetamol"
+  manufacturerId        String?                @map("manufacturer_id")
+  categoryId            String?                @map("category_id")
+  unitId                String?                @map("unit_id")
+  dosageForm            String?                @map("dosage_form") // Flexible string e.g. "Tablet", "Syrup"
+  strength              String?                // e.g. "500mg", "250mg/5ml"
+  packSize              String?                @map("pack_size") // e.g. "10x10", "1x60ml"
+  barcode               String?
+  taxPercentage         Decimal                @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  description           String?
+  isActive              Boolean                @default(true) @map("is_active")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
 
-  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  manufacturer        Manufacturer?         @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
-  category            ProductCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  unit                UnitOfMeasurement?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
-  batches             Batch[]
-  stockMovements      StockMovement[]
-  stockAdjustmentItems StockAdjustmentItem[]
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer          Manufacturer?          @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  category              ProductCategory?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit                  UnitOfMeasurement?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  batches               Batch[]
+  stockMovements        StockMovement[]
+  stockAdjustmentItems  StockAdjustmentItem[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  goodsReceiveNoteItems GoodsReceiveNoteItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -347,22 +359,23 @@ model Product {
 
 /// Pharmaceutical Batch / Lot model
 model Batch {
-  id                  String                @id @default(uuid())
-  productId           String                @map("product_id")
-  batchNumber         String                @map("batch_number") // e.g. "BN-99201"
-  mfgDate             DateTime?             @map("mfg_date")
-  expiryDate          DateTime              @map("expiry_date")
-  purchaseCost        Decimal               @map("purchase_cost") @db.Decimal(12, 2)
-  tradePrice          Decimal               @map("trade_price") @db.Decimal(12, 2)   // TP (Regulated Trade Price)
-  retailPrice         Decimal               @map("retail_price") @db.Decimal(12, 2)  // MRP (Max Retail Price)
-  status              BatchStatus           @default(ACTIVE)
-  remarks             String?
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
+  id                    String                 @id @default(uuid())
+  productId             String                 @map("product_id")
+  batchNumber           String                 @map("batch_number") // e.g. "BN-99201"
+  mfgDate               DateTime?              @map("mfg_date")
+  expiryDate            DateTime               @map("expiry_date")
+  purchaseCost          Decimal                @map("purchase_cost") @db.Decimal(12, 2)
+  tradePrice            Decimal                @map("trade_price") @db.Decimal(12, 2)   // TP (Regulated Trade Price)
+  retailPrice           Decimal                @map("retail_price") @db.Decimal(12, 2)  // MRP (Max Retail Price)
+  status                BatchStatus            @default(ACTIVE)
+  remarks               String?
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
 
-  product             Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
-  stockMovements      StockMovement[]
-  stockAdjustmentItems StockAdjustmentItem[]
+  product               Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  stockMovements        StockMovement[]
+  stockAdjustmentItems  StockAdjustmentItem[]
+  goodsReceiveNoteItems GoodsReceiveNoteItem[]
 
   @@unique([productId, batchNumber])
   @@index([productId, expiryDate])
@@ -372,21 +385,22 @@ model Batch {
 
 /// Warehouse / Storage Location model (anchored to Branch)
 model Warehouse {
-  id               String            @id @default(uuid())
-  organizationId   String            @map("organization_id")
-  branchId         String            @map("branch_id")
-  name             String            // e.g. "Main Warehouse", "Quarantine Section"
-  code             String            // e.g. "WH-MAIN", "WH-QUAR"
-  address          String?
-  isDefault        Boolean           @default(false) @map("is_default")
-  isActive         Boolean           @default(true) @map("is_active")
-  createdAt        DateTime          @default(now()) @map("created_at")
-  updatedAt        DateTime          @updatedAt @map("updated_at")
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
+  branchId          String             @map("branch_id")
+  name              String             // e.g. "Main Warehouse", "Quarantine Section"
+  code              String             // e.g. "WH-MAIN", "WH-QUAR"
+  address           String?
+  isDefault         Boolean            @default(false) @map("is_default")
+  isActive          Boolean            @default(true) @map("is_active")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch           Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  stockMovements   StockMovement[]
-  stockAdjustments StockAdjustment[]
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  stockMovements    StockMovement[]
+  stockAdjustments  StockAdjustment[]
+  goodsReceiveNotes GoodsReceiveNote[]
 
   @@unique([branchId, code])
   @@map("warehouses")
@@ -398,7 +412,7 @@ enum StockMovementType {
   STOCK_ADJUSTMENT_OUT  // Physical count negative variance / damage / disposal (-)
   TRANSFER_IN           // Internal warehouse receiving (+) [Reserved]
   TRANSFER_OUT          // Internal warehouse dispatch (-) [Reserved]
-  PURCHASE_RECEIPT      // Supplier GRN receiving (+) [Reserved]
+  PURCHASE_RECEIPT      // Supplier GRN receiving (+)
   PURCHASE_RETURN       // Vendor return debit note (-) [Reserved]
   SALES_ISSUE           // Customer invoice delivery (-) [Reserved]
   SALES_RETURN          // Customer sales return credit note (+) [Reserved]
@@ -415,7 +429,7 @@ model StockMovement {
   movementType    StockMovementType @map("movement_type")
   quantity        Int               // Signed: positive for inflow (+), negative for outflow (-)
   unitCost        Decimal           @map("unit_cost") @db.Decimal(12, 2)
-  referenceType   String            @map("reference_type") // e.g. "STOCK_ADJUSTMENT", "OPENING_BALANCE"
+  referenceType   String            @map("reference_type") // e.g. "STOCK_ADJUSTMENT", "OPENING_BALANCE", "GOODS_RECEIVE_NOTE"
   referenceId     String?           @map("reference_id")   // ID of source document
   movementDate    DateTime          @default(now()) @map("movement_date")
   notes           String?
@@ -491,4 +505,208 @@ model StockAdjustmentItem {
   batch          Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
 
   @@map("stock_adjustment_items")
+}
+
+// -----------------------------------------------------------------------------
+// PURCHASING, SUPPLIER & GOODS RECEIVING (GRN) MODELS
+// -----------------------------------------------------------------------------
+
+/// Supplier / Vendor Master Model
+model Supplier {
+  id                String                 @id @default(uuid())
+  organizationId    String                 @map("organization_id")
+  code              String                 // e.g. "SUP-001" (unique per organization)
+  name              String                 // e.g. "Getz Pharma Distribution"
+  contactPerson     String?                @map("contact_person")
+  phone             String?
+  email             String?
+  address           String?
+  city              String?
+  ntn               String?                // National Tax Number (Pakistani compliance)
+  strn              String?                // Sales Tax Registration Number
+  drugLicenseNo     String?                @map("drug_license_no") // Drug Sale License
+  creditDays        Int                    @default(30) @map("credit_days")
+  creditLimit       Decimal                @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance    Decimal                @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached organization-wide payable balance
+  isActive          Boolean                @default(true) @map("is_active")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  purchaseOrders    PurchaseOrder[]
+  goodsReceiveNotes GoodsReceiveNote[]
+  ledgerEntries     SupplierLedgerEntry[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, name])
+  @@index([organizationId, isActive])
+  @@map("suppliers")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+/// Purchase Order (Commercial Intent / Order Document)
+model PurchaseOrder {
+  id                 String              @id @default(uuid())
+  organizationId     String              @map("organization_id")
+  branchId           String              @map("branch_id")
+  supplierId         String              @map("supplier_id")
+  poNumber           String              @map("po_number") // Sequential via NumberingService (DocumentType.PURCHASE_ORDER)
+  orderDate          DateTime            @default(now()) @map("order_date")
+  expectedDate       DateTime?           @map("expected_date")
+  status             PurchaseOrderStatus @default(DRAFT)
+  subtotal           Decimal             @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  taxAmount          Decimal             @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount     Decimal             @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  netTotal           Decimal             @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  notes              String?
+  createdById        String?             @map("created_by_id")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier           Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items              PurchaseOrderItem[]
+  goodsReceiveNotes  GoodsReceiveNote[]
+
+  @@unique([organizationId, poNumber])
+  @@index([organizationId, branchId, supplierId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+/// Purchase Order Line Item
+model PurchaseOrderItem {
+  id                 String              @id @default(uuid())
+  purchaseOrderId    String              @map("purchase_order_id")
+  productId          String              @map("product_id")
+  orderedQuantity    Int                 @map("ordered_quantity")
+  receivedQuantity   Int                 @default(0) @map("received_quantity")
+  unitCost           Decimal             @map("unit_cost") @db.Decimal(12, 2)
+  discountPercentage Decimal             @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  taxPercentage      Decimal             @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  lineTotal          Decimal             @map("line_total") @db.Decimal(12, 2)
+  remarks            String?
+
+  purchaseOrder      PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product            Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  grnItems           GoodsReceiveNoteItem[]
+
+  @@map("purchase_order_items")
+}
+
+enum GrnStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+/// Goods Receive Note (Physical Receiving, Stock Ledger & Payable Billing)
+model GoodsReceiveNote {
+  id                    String                 @id @default(uuid())
+  organizationId        String                 @map("organization_id")
+  branchId              String                 @map("branch_id")
+  warehouseId           String                 @map("warehouse_id")
+  supplierId            String                 @map("supplier_id")
+  purchaseOrderId       String?                @map("purchase_order_id") // Optional link to PO
+  grnNumber             String                 @map("grn_number")        // Sequential via NumberingService (DocumentType.GOODS_RECEIVE_NOTE)
+  supplierInvoiceNumber String?                @map("supplier_invoice_number") // Vendor's delivery bill / invoice number
+  supplierInvoiceDate   DateTime?              @map("supplier_invoice_date")
+  receivedDate          DateTime               @default(now()) @map("received_date")
+  status                GrnStatus              @default(DRAFT)
+  subtotal              Decimal                @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  taxAmount             Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount        Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  netTotal              Decimal                @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  notes                 String?
+  postedAt              DateTime?              @map("posted_at")
+  postedByUserId        String?                @map("posted_by_user_id")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch                Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse             Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  supplier              Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseOrder         PurchaseOrder?         @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  postedByUser          User?                  @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
+  items                 GoodsReceiveNoteItem[]
+  ledgerEntries         SupplierLedgerEntry[]
+
+  @@unique([organizationId, grnNumber])
+  @@index([organizationId, branchId, warehouseId])
+  @@index([supplierId, status])
+  @@index([receivedDate])
+  @@map("goods_receive_notes")
+}
+
+/// Goods Receive Note Line Item (Batch capture & itemized cost)
+model GoodsReceiveNoteItem {
+  id                 String              @id @default(uuid())
+  grnId              String              @map("grn_id")
+  poItemId           String?             @map("po_item_id")
+  productId          String              @map("product_id")
+  batchId            String?             @map("batch_id") // Assigned / Created upon receiving
+  batchNumber        String              @map("batch_number")
+  mfgDate            DateTime?           @map("mfg_date")
+  expiryDate         DateTime            @map("expiry_date")
+  receivedQuantity   Int                 @map("received_quantity") // Billed Units received
+  bonusQuantity      Int                 @default(0) @map("bonus_quantity") // Free / Bonus units from vendor (0 cost)
+  unitCost           Decimal             @map("unit_cost") @db.Decimal(12, 2) // Received purchase price per unit snapshot
+  tradePrice         Decimal             @map("trade_price") @db.Decimal(12, 2) // Regulated TP snapshot
+  retailPrice        Decimal             @map("retail_price") @db.Decimal(12, 2) // Regulated MRP snapshot
+  discountPercentage Decimal             @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  taxPercentage      Decimal             @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  lineTotal          Decimal             @map("line_total") @db.Decimal(12, 2) // (receivedQty * unitCost) - discount + tax
+  remarks            String?
+
+  grn                GoodsReceiveNote    @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poItem             PurchaseOrderItem?  @relation(fields: [poItemId], references: [id], onDelete: SetNull)
+  product            Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch              Batch?              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@map("goods_receive_note_items")
+}
+
+enum SupplierLedgerEntryType {
+  OPENING_BALANCE    // Initial vendor balance setup
+  GRN_INVOICE        // Goods receipt bill / payable addition (Credit)
+  PAYMENT            // Vendor payment / bank disbursement (Debit) [Reserved]
+  DEBIT_NOTE         // Purchase return / vendor debit (Debit) [Reserved]
+  ADJUSTMENT         // Balance correction
+}
+
+/// Immutable Supplier Financial Sub-Ledger Entry
+model SupplierLedgerEntry {
+  id              String                  @id @default(uuid())
+  organizationId  String                  @map("organization_id")
+  branchId        String                  @map("branch_id")
+  supplierId      String                  @map("supplier_id")
+  grnId           String?                 @map("grn_id")
+  entryType       SupplierLedgerEntryType @map("entry_type")
+  referenceNumber String                  @map("reference_number") // e.g. "GRN-00042", "OPENING", or "INV-8891"
+  debit           Decimal                 @default(0.00) @db.Decimal(12, 2)  // Reduces payable (Payments, Returns)
+  credit          Decimal                 @default(0.00) @db.Decimal(12, 2)  // Increases payable (Purchases/GRN)
+  runningBalance  Decimal                 @map("running_balance") @db.Decimal(12, 2)
+  transactionDate DateTime                @default(now()) @map("transaction_date")
+  notes           String?
+  createdByUserId String?                 @map("created_by_user_id")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier        Supplier                @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  grn             GoodsReceiveNote?       @relation(fields: [grnId], references: [id], onDelete: SetNull)
+  createdByUser   User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, supplierId, transactionDate])
+  @@index([grnId])
+  @@map("supplier_ledger_entries")
 }

@@ -85,6 +85,7 @@ export class AuthSeedService implements OnApplicationBootstrap {
     const defaultSeriesList = [
       { documentType: 'SALES_INVOICE' as const, prefix: 'INV-', padding: 5 },
       { documentType: 'PURCHASE_INVOICE' as const, prefix: 'PINV-', padding: 5 },
+      { documentType: 'PURCHASE_ORDER' as const, prefix: 'PO-', padding: 5 },
       { documentType: 'SALES_RETURN' as const, prefix: 'SRET-', padding: 5 },
       { documentType: 'PURCHASE_RETURN' as const, prefix: 'PRET-', padding: 5 },
       { documentType: 'PAYMENT_RECEIPT' as const, prefix: 'REC-', padding: 5 },
