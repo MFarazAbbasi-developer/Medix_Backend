@@ -15,6 +15,9 @@ import { AuditModule } from './modules/audit/audit.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { NumberingModule } from './modules/numbering/numbering.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { MasterDataModule } from './modules/master-data/master-data.module';
+import { ProductModule } from './modules/product/product.module';
+import { BatchModule } from './modules/batch/batch.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -64,6 +67,9 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     OrganizationModule,
     NumberingModule,
     SettingsModule,
+    MasterDataModule,
+    ProductModule,
+    BatchModule,
   ],
 })
 export class AppModule implements NestModule {

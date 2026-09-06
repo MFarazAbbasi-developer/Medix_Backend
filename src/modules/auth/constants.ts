@@ -35,6 +35,38 @@ export const INITIAL_PERMISSIONS = [
     description: 'Modify system and station configuration',
   },
 
+  // Products & Catalog
+  {
+    code: 'products.view',
+    description: 'View pharmaceutical product catalog and specifications',
+  },
+  {
+    code: 'products.create',
+    description: 'Create new pharmaceutical products and SKUs',
+  },
+  {
+    code: 'products.edit',
+    description: 'Edit pharmaceutical product specifications and pricing',
+  },
+  {
+    code: 'products.disable',
+    description: 'Activate or deactivate pharmaceutical products',
+  },
+
+  // Batches & Lot Management
+  {
+    code: 'batches.view',
+    description: 'View product batches, expiry dates, and lot pricing',
+  },
+  {
+    code: 'batches.create',
+    description: 'Register new product manufacturing batches',
+  },
+  {
+    code: 'batches.edit',
+    description: 'Update batch pricing, status, and remarks',
+  },
+
   // Sales & Distribution (Foundational permissions for future module)
   {
     code: 'sales.view',

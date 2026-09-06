@@ -151,6 +151,10 @@ model Organization {
   branches          Branch[]
   numberingSeries   NumberingSeries[]
   systemSettings    SystemSetting[]
+  manufacturers     Manufacturer[]
+  productCategories ProductCategory[]
+  unitsOfMeasurement UnitOfMeasurement[]
+  products          Product[]
 
   @@map("organizations")
 }
@@ -234,4 +238,122 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+enum BatchStatus {
+  ACTIVE
+  QUARANTINED
+  RECALLED
+}
+
+/// Pharmaceutical Manufacturer / Principal model
+model Manufacturer {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  name           String
+  code           String?
+  contactPerson  String?      @map("contact_person")
+  phone          String?
+  email          String?
+  address        String?
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products       Product[]
+
+  @@unique([organizationId, name])
+  @@map("manufacturers")
+}
+
+/// Product Category model (e.g. Antibiotics, Analgesics, Cardiac, OTC)
+model ProductCategory {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  name           String
+  code           String?
+  description    String?
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products       Product[]
+
+  @@unique([organizationId, name])
+  @@map("product_categories")
+}
+
+/// Unit of Measurement model (e.g. Box, Strip, Bottle, Ampoule, Vial)
+model UnitOfMeasurement {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  name           String
+  symbol         String
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products       Product[]
+
+  @@unique([organizationId, symbol])
+  @@map("units_of_measurement")
+}
+
+/// Pharmaceutical Product / SKU Master model
+model Product {
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  sku            String             // User-defined SKU / Item Code
+  name           String             // Commercial Brand Name e.g. "Panadol 500mg"
+  genericName    String             @map("generic_name") // e.g. "Paracetamol"
+  manufacturerId String?            @map("manufacturer_id")
+  categoryId     String?            @map("category_id")
+  unitId         String?            @map("unit_id")
+  dosageForm     String?            @map("dosage_form") // Flexible string e.g. "Tablet", "Syrup"
+  strength       String?            // e.g. "500mg", "250mg/5ml"
+  packSize       String?            @map("pack_size") // e.g. "10x10", "1x60ml"
+  barcode        String?
+  taxPercentage  Decimal            @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  description    String?
+  isActive       Boolean            @default(true) @map("is_active")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer   Manufacturer?      @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  category       ProductCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit           UnitOfMeasurement? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  batches        Batch[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, name])
+  @@index([organizationId, genericName])
+  @@index([organizationId, barcode])
+  @@map("products")
+}
+
+/// Pharmaceutical Batch / Lot model
+model Batch {
+  id           String      @id @default(uuid())
+  productId    String      @map("product_id")
+  batchNumber  String      @map("batch_number") // e.g. "BN-99201"
+  mfgDate      DateTime?   @map("mfg_date")
+  expiryDate   DateTime    @map("expiry_date")
+  purchaseCost Decimal     @map("purchase_cost") @db.Decimal(12, 2)
+  tradePrice   Decimal     @map("trade_price") @db.Decimal(12, 2)   // TP (Regulated Trade Price)
+  retailPrice  Decimal     @map("retail_price") @db.Decimal(12, 2)  // MRP (Max Retail Price)
+  status       BatchStatus @default(ACTIVE)
+  remarks      String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, batchNumber])
+  @@index([productId, expiryDate])
+  @@index([status])
+  @@map("batches")
 }

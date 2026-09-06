@@ -194,6 +194,43 @@ export class AuthSeedService implements OnApplicationBootstrap {
       }
     }
     this.logger.log('Default system settings verified');
+
+    // 5. Seed standard Units of Measurement (if missing)
+    const standardUnits = [
+      { name: 'Box', symbol: 'Box' },
+      { name: 'Strip', symbol: 'Strip' },
+      { name: 'Bottle', symbol: 'Btl' },
+      { name: 'Ampoule', symbol: 'Amp' },
+      { name: 'Vial', symbol: 'Vial' },
+      { name: 'Syringe', symbol: 'Syr' },
+      { name: 'Tube', symbol: 'Tube' },
+      { name: 'Sachet', symbol: 'Sach' },
+      { name: 'Drops Bottle', symbol: 'Drp' },
+      { name: 'Packet', symbol: 'Pkt' },
+    ];
+
+    for (const u of standardUnits) {
+      const existingUnit = await this.prisma.unitOfMeasurement.findUnique({
+        where: {
+          organizationId_symbol: {
+            organizationId: org.id,
+            symbol: u.symbol,
+          },
+        },
+      });
+
+      if (!existingUnit) {
+        await this.prisma.unitOfMeasurement.create({
+          data: {
+            organizationId: org.id,
+            name: u.name,
+            symbol: u.symbol,
+            isActive: true,
+          },
+        });
+      }
+    }
+    this.logger.log('Standard units of measurement verified');
   }
 
   /**
