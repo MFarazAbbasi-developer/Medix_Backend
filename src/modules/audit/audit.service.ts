@@ -122,6 +122,30 @@ export class AuditService {
       where.action = { equals: query.action, mode: 'insensitive' };
     }
 
+    if (query.startDate || query.endDate) {
+      where.createdAt = {};
+      if (query.startDate) {
+        const start = new Date(query.startDate);
+        start.setHours(0, 0, 0, 0);
+        where.createdAt.gte = start;
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    if (query.search) {
+      where.OR = [
+        { action: { contains: query.search, mode: 'insensitive' } },
+        { entity: { contains: query.search, mode: 'insensitive' } },
+        { entityId: { contains: query.search, mode: 'insensitive' } },
+        { user: { username: { contains: query.search, mode: 'insensitive' } } },
+        { user: { displayName: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+
     const [total, items] = await Promise.all([
       this.prisma.auditLog.count({ where }),
       this.prisma.auditLog.findMany({

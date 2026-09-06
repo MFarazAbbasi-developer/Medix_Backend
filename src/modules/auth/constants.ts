@@ -24,6 +24,20 @@ export const INITIAL_PERMISSIONS = [
     code: 'users.disable',
     description: 'Disable or deactivate user accounts',
   },
+  {
+    code: 'users.manage',
+    description: 'Create, edit, deactivate, and reset user passwords',
+  },
+
+  // Role & Permission Management
+  {
+    code: 'roles.view',
+    description: 'View system roles and permission assignments',
+  },
+  {
+    code: 'roles.manage',
+    description: 'Create, edit, and configure roles and permissions',
+  },
 
   // Settings & Station Configuration
   {
@@ -285,6 +299,26 @@ export const INITIAL_PERMISSIONS = [
   {
     code: 'audit.view',
     description: 'View system audit trail and activity logs',
+  },
+
+  // Database Backup & Restore
+  {
+    code: 'backup.view',
+    description: 'View database backup history and status',
+  },
+  {
+    code: 'backup.manage',
+    description: 'Create manual database backups',
+  },
+  {
+    code: 'backup.restore',
+    description: 'Execute database restore operations (destructive)',
+  },
+
+  // Data Export
+  {
+    code: 'data.export',
+    description: 'Export master and transactional data to CSV',
   },
 ] as const;
 

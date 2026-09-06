@@ -1550,3 +1550,5 @@ model ProductRecall {
   @@index([status])
   @@map("product_recalls")
 }
+
+
