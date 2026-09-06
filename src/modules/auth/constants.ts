@@ -203,6 +203,28 @@ export const INITIAL_PERMISSIONS = [
     description: 'Cancel customer sales returns with stock and settlement reversal',
   },
 
+  // Pricing & Commercial Schemes
+  {
+    code: 'pricing.view',
+    description: 'View customer pricing rules and commercial contracts',
+  },
+  {
+    code: 'pricing.manage',
+    description: 'Create, edit, and deactivate pricing rules and overrides',
+  },
+  {
+    code: 'schemes.view',
+    description: 'View promotional schemes and bonus policies',
+  },
+  {
+    code: 'schemes.manage',
+    description: 'Create, edit, and deactivate promotional schemes',
+  },
+  {
+    code: 'sales.override_discount',
+    description: 'Manually override automated pricing and discounts on sales invoices',
+  },
+
   // Reporting & Audit
   {
     code: 'reports.view',

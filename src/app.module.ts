@@ -28,6 +28,7 @@ import { CustomerPaymentModule } from './modules/customer-payment/customer-payme
 import { SalesReturnModule } from './modules/sales-return/sales-return.module';
 import { SupplierPaymentModule } from './modules/supplier-payment/supplier-payment.module';
 import { PurchaseReturnModule } from './modules/purchase-return/purchase-return.module';
+import { PricingModule } from './modules/pricing/pricing.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -90,6 +91,7 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     SalesReturnModule,
     SupplierPaymentModule,
     PurchaseReturnModule,
+    PricingModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -436,37 +436,45 @@ export class CustomerService {
       );
     }
 
-    const rule = await this.prisma.customerPricingRule.upsert({
+    let rule = await this.prisma.customerPricingRule.findFirst({
       where: {
-        customerId_productId: {
-          customerId,
-          productId: dto.productId,
-        },
-      },
-      update: {
-        ...(dto.customPrice !== undefined && {
-          customPrice: new Prisma.Decimal(dto.customPrice),
-        }),
-        ...(dto.discountPercentage !== undefined && {
-          discountPercentage: new Prisma.Decimal(dto.discountPercentage),
-        }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
-      create: {
         organizationId,
         customerId,
         productId: dto.productId,
-        customPrice:
-          dto.customPrice !== undefined
-            ? new Prisma.Decimal(dto.customPrice)
-            : null,
-        discountPercentage:
-          dto.discountPercentage !== undefined
-            ? new Prisma.Decimal(dto.discountPercentage)
-            : null,
-        isActive: dto.isActive !== undefined ? dto.isActive : true,
       },
     });
+
+    if (rule) {
+      rule = await this.prisma.customerPricingRule.update({
+        where: { id: rule.id },
+        data: {
+          ...(dto.customPrice !== undefined && {
+            customPrice: new Prisma.Decimal(dto.customPrice),
+          }),
+          ...(dto.discountPercentage !== undefined && {
+            discountPercentage: new Prisma.Decimal(dto.discountPercentage),
+          }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        },
+      });
+    } else {
+      rule = await this.prisma.customerPricingRule.create({
+        data: {
+          organizationId,
+          customerId,
+          productId: dto.productId,
+          customPrice:
+            dto.customPrice !== undefined
+              ? new Prisma.Decimal(dto.customPrice)
+              : null,
+          discountPercentage:
+            dto.discountPercentage !== undefined
+              ? new Prisma.Decimal(dto.discountPercentage)
+              : null,
+          isActive: dto.isActive !== undefined ? dto.isActive : true,
+        },
+      });
+    }
 
     await this.audit.log({
       userId,

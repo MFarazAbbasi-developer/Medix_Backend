@@ -4,11 +4,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { FefoService } from '../inventory/fefo.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PricingEngineService } from '../pricing/pricing-engine.service';
+import { BadRequestException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 
 describe('SalesService', () => {
   let service: SalesService;
+  let pricingEngine: PricingEngineService;
   let prisma: any;
   let auditService: any;
   let numberingService: any;
@@ -19,11 +21,14 @@ describe('SalesService', () => {
     code: 'CUST-001',
     name: 'Al-Shifa Pharmacy',
     customer_type: 'RETAIL_PHARMACY',
+    customerType: 'RETAIL_PHARMACY',
     credit_limit: new Decimal('50000.00'),
     credit_days: 30,
     current_balance: new Decimal('0.00'),
     default_discount_percentage: new Decimal('0.00'),
+    defaultDiscountPercentage: new Decimal('0.00'),
     is_tax_exempt: false,
+    isTaxExempt: false,
     is_active: true,
   };
 
@@ -34,16 +39,33 @@ describe('SalesService', () => {
     sku: 'MED-PAN-500',
     taxPercentage: new Decimal('0.00'),
     isActive: true,
+    batches: [
+      {
+        id: 'batch-1',
+        productId: 'prod-1',
+        batchNumber: 'BN-101',
+        expiryDate: new Date(Date.now() + 86400000 * 300),
+        purchaseCost: new Decimal('40.00'),
+        tradePrice: new Decimal('48.00'),
+        retailPrice: new Decimal('55.00'),
+      },
+    ],
   };
 
   const mockBatch = {
     id: 'batch-1',
     product_id: 'prod-1',
+    productId: 'prod-1',
     batch_number: 'BN-101',
+    batchNumber: 'BN-101',
     expiry_date: new Date(Date.now() + 86400000 * 300),
+    expiryDate: new Date(Date.now() + 86400000 * 300),
     purchase_cost: new Decimal('40.00'),
+    purchaseCost: new Decimal('40.00'),
     trade_price: new Decimal('48.00'),
+    tradePrice: new Decimal('48.00'),
     retail_price: new Decimal('55.00'),
+    retailPrice: new Decimal('55.00'),
   };
 
   const mockWarehouse = {
@@ -82,6 +104,10 @@ describe('SalesService', () => {
       },
       customerPricingRule: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      promotionalScheme: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
       salesInvoice: {
         create: vi.fn().mockResolvedValue({
@@ -194,11 +220,14 @@ describe('SalesService', () => {
       }),
     };
 
+    pricingEngine = new PricingEngineService();
+
     service = new SalesService(
       prisma as PrismaService,
       auditService as AuditService,
       numberingService as NumberingService,
       fefoService as FefoService,
+      pricingEngine,
     );
   });
 

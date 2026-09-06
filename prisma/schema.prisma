@@ -186,6 +186,7 @@ model Organization {
   salesReturns          SalesReturn[]
   supplierPayments      SupplierPayment[]
   purchaseReturns       PurchaseReturn[]
+  promotionalSchemes    PromotionalScheme[]
 
   @@map("organizations")
 }
@@ -365,19 +366,21 @@ model Product {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  manufacturer          Manufacturer?          @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
-  category              ProductCategory?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  unit                  UnitOfMeasurement?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
-  batches               Batch[]
-  stockMovements        StockMovement[]
-  stockAdjustmentItems  StockAdjustmentItem[]
-  purchaseOrderItems    PurchaseOrderItem[]
-  goodsReceiveNoteItems GoodsReceiveNoteItem[]
-  salesInvoiceItems     SalesInvoiceItem[]
-  customerPricingRules  CustomerPricingRule[]
-  salesReturnItems      SalesReturnItem[]
-  purchaseReturnItems   PurchaseReturnItem[]
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer            Manufacturer?          @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  category                ProductCategory?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit                    UnitOfMeasurement?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  batches                 Batch[]
+  stockMovements          StockMovement[]
+  stockAdjustmentItems    StockAdjustmentItem[]
+  purchaseOrderItems      PurchaseOrderItem[]
+  goodsReceiveNoteItems   GoodsReceiveNoteItem[]
+  salesInvoiceItems       SalesInvoiceItem[]
+  customerPricingRules    CustomerPricingRule[]
+  salesReturnItems        SalesReturnItem[]
+  purchaseReturnItems     PurchaseReturnItem[]
+  promotionalSchemes      PromotionalScheme[]    @relation("SchemeProduct")
+  bonusPromotionalSchemes PromotionalScheme[]    @relation("SchemeBonusProduct")
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -963,12 +966,13 @@ model Customer {
   createdAt                 DateTime     @default(now()) @map("created_at")
   updatedAt                 DateTime     @updatedAt @map("updated_at")
 
-  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  salesInvoices    SalesInvoice[]
-  ledgerEntries    CustomerLedgerEntry[]
-  pricingRules     CustomerPricingRule[]
-  customerPayments CustomerPayment[]
-  salesReturns     SalesReturn[]
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  salesInvoices      SalesInvoice[]
+  ledgerEntries      CustomerLedgerEntry[]
+  pricingRules       CustomerPricingRule[]
+  customerPayments   CustomerPayment[]
+  salesReturns       SalesReturn[]
+  promotionalSchemes PromotionalScheme[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -978,22 +982,76 @@ model Customer {
 
 /// Customer-Specific Pricing Overrides (contracted rates or custom discounts)
 model CustomerPricingRule {
-  id                 String   @id @default(uuid())
-  organizationId     String   @map("organization_id")
-  customerId         String   @map("customer_id")
-  productId          String   @map("product_id")
-  customPrice        Decimal? @map("custom_price") @db.Decimal(12, 2) // Fixed contracted unit price
-  discountPercentage Decimal? @map("discount_percentage") @db.Decimal(5, 2) // Contracted discount %
-  isActive           Boolean  @default(true) @map("is_active")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  organizationId     String    @map("organization_id")
+  customerId         String    @map("customer_id")
+  productId          String    @map("product_id")
+  customPrice        Decimal?  @map("custom_price") @db.Decimal(12, 2) // Fixed contracted unit price
+  discountPercentage Decimal?  @map("discount_percentage") @db.Decimal(5, 2) // Contracted discount %
+  minQuantity        Int       @default(1) @map("min_quantity") // Minimum billed quantity required to trigger
+  startDate          DateTime? @map("start_date") // Optional effective start date
+  endDate            DateTime? @map("end_date") // Optional effective end date
+  notes              String?
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
   product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@unique([customerId, productId])
+  @@index([organizationId, customerId])
+  @@index([organizationId, productId])
   @@map("customer_pricing_rules")
+}
+
+enum SchemeType {
+  BUY_X_GET_Y_FREE // e.g. Buy 10 of Product A, Get 1 of Product A (or B) free
+  BUY_X_GET_DISCOUNT // e.g. Buy 10 or more, get 15% off
+  FLAT_DISCOUNT_PERCENT // e.g. Special promotional discount % on product
+  FLAT_PRICE_OVERRIDE // e.g. Fixed promotional promo price
+}
+
+/// Promotional & Bonus Schemes Model (Pharma commercial trade schemes)
+model PromotionalScheme {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  name           String // e.g. "Augmentin Monsoon Special (10+1)"
+  code           String // e.g. "SCH-AUG-10P1"
+  description    String?
+  schemeType     SchemeType @default(BUY_X_GET_Y_FREE) @map("scheme_type")
+
+  // Product scope
+  productId String @map("product_id")
+
+  // Scheme parameters
+  minQuantity        Int      @default(1) @map("min_quantity") // "Buy X" threshold (e.g. 10)
+  bonusQuantity      Int      @default(0) @map("bonus_quantity") // "Get Y Free" (e.g. 1)
+  bonusProductId     String?  @map("bonus_product_id") // Optional free product (defaults to same product if null)
+  discountPercentage Decimal? @map("discount_percentage") @db.Decimal(5, 2)
+  overridePrice      Decimal? @map("override_price") @db.Decimal(12, 2)
+
+  // Customer eligibility (optional customer or customer category filter)
+  customerId   String?       @map("customer_id") // Specific customer if restricted, or null for all
+  customerType CustomerType? @map("customer_type") // Specific customer category if restricted, or null for all
+
+  // Validity window
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  product      Product      @relation("SchemeProduct", fields: [productId], references: [id], onDelete: Cascade)
+  bonusProduct Product?     @relation("SchemeBonusProduct", fields: [bonusProductId], references: [id], onDelete: SetNull)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, code])
+  @@index([organizationId, productId, isActive])
+  @@index([startDate, endDate])
+  @@map("promotional_schemes")
 }
 
 enum CustomerLedgerEntryType {
@@ -1133,6 +1191,12 @@ model SalesInvoiceItem {
   lineTotal          Decimal @map("line_total") @db.Decimal(12, 2) // (billedQuantity * unitPrice) - discount + tax
   lineCost           Decimal @map("line_cost") @db.Decimal(12, 2) // totalQuantity * unitCost (COGS)
   lineProfit         Decimal @map("line_profit") @db.Decimal(12, 2) // (lineTotal - taxAmount) - lineCost
+
+  // Auditable pricing and scheme snapshot
+  pricingSource String? @map("pricing_source") // e.g. CUSTOMER_CUSTOM_PRICE, CUSTOMER_PRODUCT_DISCOUNT, PROMOTIONAL_SCHEME, etc.
+  pricingRuleId String? @map("pricing_rule_id")
+  schemeId      String? @map("scheme_id")
+  schemeName    String? @map("scheme_name")
 
   salesInvoice     SalesInvoice      @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
   product          Product           @relation(fields: [productId], references: [id], onDelete: Restrict)

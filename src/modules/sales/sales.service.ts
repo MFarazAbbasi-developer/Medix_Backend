@@ -2,20 +2,17 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { FefoService } from '../inventory/fefo.service';
-import {
-  CreateSalesInvoiceDto,
-  CreateSalesInvoiceItemDto,
-} from './dto/create-sales-invoice.dto';
+import { CreateSalesInvoiceDto } from './dto/create-sales-invoice.dto';
 import { FefoPreviewDto } from './dto/fefo-preview.dto';
 import { QuerySalesInvoiceDto } from './dto/query-sales-invoice.dto';
 import { CancelSalesInvoiceDto } from './dto/cancel-sales-invoice.dto';
-import { Prisma, DocumentType, SalesInvoiceStatus } from '@prisma/client';
+import { PricingEngineService } from '../pricing/pricing-engine.service';
+import { Prisma, DocumentType } from '@prisma/client';
 
 export interface ResolvedLineAllocation {
   productId: string;
@@ -36,6 +33,10 @@ export interface ResolvedLineAllocation {
   lineTotal: number;
   lineCost: number;
   lineProfit: number;
+  pricingSource?: string;
+  pricingRuleId?: string | null;
+  schemeId?: string | null;
+  schemeName?: string | null;
   remarks?: string;
 }
 
@@ -46,6 +47,7 @@ export class SalesService {
     private readonly audit: AuditService,
     private readonly numbering: NumberingService,
     private readonly fefo: FefoService,
+    private readonly pricingEngine: PricingEngineService,
   ) {}
 
   private async getOrganizationId(): Promise<string> {
@@ -106,23 +108,57 @@ export class SalesService {
       requestedQuantity: dto.requestedQuantity,
     });
 
-    // Check pricing rule if customerId is provided
-    let customRule: any = null;
+    // Check pricing and schemes if customerId is provided
     let customer: any = null;
+    let pricingResolution: any = null;
     if (dto.customerId) {
-      [customRule, customer] = await Promise.all([
-        this.prisma.customerPricingRule.findUnique({
-          where: {
-            customerId_productId: {
-              customerId: dto.customerId,
-              productId: dto.productId,
+      customer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, organizationId },
+      });
+
+      if (customer) {
+        const now = new Date();
+        const [pricingRules, promotionalSchemes, pricingSetting] = await Promise.all([
+          this.prisma.customerPricingRule.findMany({
+            where: {
+              organizationId,
+              customerId: customer.id,
+              productId: product.id,
+              isActive: true,
             },
-          },
-        }),
-        this.prisma.customer.findFirst({
-          where: { id: dto.customerId, organizationId },
-        }),
-      ]);
+          }),
+          this.prisma.promotionalScheme.findMany({
+            where: {
+              organizationId,
+              productId: product.id,
+              isActive: true,
+              startDate: { lte: now },
+              endDate: { gte: now },
+            },
+          }),
+          this.prisma.systemSetting.findUnique({
+            where: {
+              organizationId_key: {
+                organizationId,
+                key: 'DEFAULT_SALES_PRICING_BASE',
+              },
+            },
+          }),
+        ]);
+
+        const defaultPricingBase = pricingSetting?.value === 'MRP' ? 'MRP' : 'TP';
+        const candidateBatch = product.batches.length > 0 ? product.batches[0] : null;
+
+        pricingResolution = this.pricingEngine.resolvePricing({
+          product,
+          batch: candidateBatch,
+          customer,
+          quantity: dto.requestedQuantity,
+          pricingRules,
+          promotionalSchemes,
+          defaultPricingBase,
+        });
+      }
     }
 
     return {
@@ -133,14 +169,25 @@ export class SalesService {
         genericName: product.genericName,
         taxPercentage: Number(product.taxPercentage),
       },
-      customerPricing: {
-        customPrice: customRule?.customPrice ? Number(customRule.customPrice) : null,
-        discountPercentage: customRule?.discountPercentage
-          ? Number(customRule.discountPercentage)
-          : customer?.defaultDiscountPercentage
-          ? Number(customer.defaultDiscountPercentage)
-          : 0,
-      },
+      customerPricing: pricingResolution
+        ? {
+            customPrice: pricingResolution.customPrice,
+            discountPercentage: pricingResolution.discountPercentage,
+            effectiveUnitPrice: pricingResolution.effectiveUnitPrice,
+            bonusQuantity: pricingResolution.bonusQuantity,
+            pricingSource: pricingResolution.pricingSource,
+            schemeId: pricingResolution.schemeId,
+            schemeName: pricingResolution.schemeName,
+            reason: pricingResolution.reason,
+          }
+        : {
+            customPrice: null,
+            discountPercentage: 0,
+            effectiveUnitPrice: 0,
+            bonusQuantity: 0,
+            pricingSource: 'DEFAULT_PRICE',
+            reason: 'Standard product trade price',
+          },
       allocation: fefoResult,
     };
   }
@@ -404,6 +451,43 @@ export class SalesService {
     let totalDiscount = 0;
 
     const draftItemsData = [];
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, organizationId },
+    });
+
+    const now = new Date();
+    const productIds = dto.items.map((i) => i.productId);
+    const [pricingRules, promotionalSchemes, pricingSetting] = await Promise.all([
+      customer
+        ? this.prisma.customerPricingRule.findMany({
+            where: {
+              organizationId,
+              customerId: customer.id,
+              productId: { in: productIds },
+              isActive: true,
+            },
+          })
+        : [],
+      this.prisma.promotionalScheme.findMany({
+        where: {
+          organizationId,
+          productId: { in: productIds },
+          isActive: true,
+          startDate: { lte: now },
+          endDate: { gte: now },
+        },
+      }),
+      this.prisma.systemSetting.findUnique({
+        where: {
+          organizationId_key: {
+            organizationId,
+            key: 'DEFAULT_SALES_PRICING_BASE',
+          },
+        },
+      }),
+    ]);
+
+    const defaultPricingBase = pricingSetting?.value === 'MRP' ? 'MRP' : 'TP';
 
     for (const item of dto.items) {
       const product = await this.prisma.product.findFirst({
@@ -429,11 +513,31 @@ export class SalesService {
         });
       }
 
-      const unitPrice = item.unitPrice ?? (batch ? Number(batch.tradePrice) : 0);
-      const discountPct = item.discountPercentage ?? 0;
-      const taxPct = item.taxPercentage ?? Number(product.taxPercentage);
+      const itemRules = pricingRules.filter((r) => r.productId === item.productId);
+      const itemSchemes = promotionalSchemes.filter((s) => s.productId === item.productId);
+
+      const resolution = customer
+        ? this.pricingEngine.resolvePricing({
+            product,
+            batch,
+            customer,
+            quantity: item.billedQuantity,
+            pricingRules: itemRules,
+            promotionalSchemes: itemSchemes,
+            defaultPricingBase,
+            manualUnitPrice: item.unitPrice,
+            manualDiscountPercentage: item.discountPercentage,
+            manualTaxPercentage: item.taxPercentage,
+          })
+        : null;
+
+      const unitPrice = resolution ? resolution.baseUnitPrice : (item.unitPrice ?? (batch ? Number(batch.tradePrice) : 0));
+      const discountPct = resolution ? resolution.discountPercentage : (item.discountPercentage ?? 0);
+      const taxPct = resolution ? resolution.taxPercentage : (item.taxPercentage ?? Number(product.taxPercentage));
       const billedQty = item.billedQuantity;
-      const bonusQty = item.bonusQuantity ?? 0;
+      const bonusQty = item.bonusQuantity !== undefined && item.bonusQuantity !== null
+        ? item.bonusQuantity
+        : (resolution ? resolution.bonusQuantity : 0);
       const totalQty = billedQty + bonusQty;
 
       const gross = billedQty * unitPrice;
@@ -467,6 +571,10 @@ export class SalesService {
         lineTotal: new Prisma.Decimal(lineTotal),
         lineCost: new Prisma.Decimal(lineCost),
         lineProfit: new Prisma.Decimal(taxable - lineCost),
+        pricingSource: resolution?.pricingSource || null,
+        pricingRuleId: resolution?.pricingRuleId || null,
+        schemeId: resolution?.schemeId || null,
+        schemeName: resolution?.schemeName || null,
       });
     }
 
@@ -634,25 +742,53 @@ export class SalesService {
         batchStockMap.set(b.id, Number(sumRes.balance));
       }
 
-      // Step 2d: Allocate stock and build discrete lines
+      // Step 2d: Fetch active pricing rules and promotional schemes
+      const productIds = dto.items.map((i) => i.productId);
+      const [pricingRules, promotionalSchemes] = await Promise.all([
+        tx.customerPricingRule.findMany({
+          where: {
+            organizationId,
+            customerId: lockedCustomer.id,
+            productId: { in: productIds },
+            isActive: true,
+          },
+        }),
+        tx.promotionalScheme.findMany({
+          where: {
+            organizationId,
+            productId: { in: productIds },
+            isActive: true,
+            startDate: { lte: now },
+            endDate: { gte: now },
+          },
+        }),
+      ]);
+
+      // Step 2e: Allocate stock and build discrete lines
       for (const itemDto of dto.items) {
         const product = await tx.product.findFirst({
           where: { id: itemDto.productId },
         });
 
-        // Pricing rule lookup
-        const customRule = await tx.customerPricingRule.findUnique({
-          where: {
-            customerId_productId: {
-              customerId: lockedCustomer.id,
-              productId: itemDto.productId,
-            },
-          },
-        });
+        const itemRules = pricingRules.filter((r) => r.productId === itemDto.productId);
+        const itemSchemes = promotionalSchemes.filter((s) => s.productId === itemDto.productId);
 
-        const totalNeeded = itemDto.billedQuantity + (itemDto.bonusQuantity || 0);
+        let resolvedBonusQty = itemDto.bonusQuantity;
+        if (resolvedBonusQty === undefined || resolvedBonusQty === null) {
+          const previewRes = this.pricingEngine.resolvePricing({
+            product: product!,
+            customer: lockedCustomer,
+            quantity: itemDto.billedQuantity,
+            pricingRules: itemRules,
+            promotionalSchemes: itemSchemes,
+            defaultPricingBase,
+          });
+          resolvedBonusQty = previewRes.bonusQuantity;
+        }
+
+        const totalNeeded = itemDto.billedQuantity + (resolvedBonusQty || 0);
         let remainingBilled = itemDto.billedQuantity;
-        let remainingBonus = itemDto.bonusQuantity || 0;
+        let remainingBonus = resolvedBonusQty || 0;
         let remainingTotal = totalNeeded;
 
         if (itemDto.batchId) {
@@ -672,7 +808,8 @@ export class SalesService {
             product: product!,
             batch: b,
             customer: lockedCustomer,
-            customRule,
+            pricingRules: itemRules,
+            promotionalSchemes: itemSchemes,
             defaultPricingBase,
             billedQuantity: remainingBilled,
             bonusQuantity: remainingBonus,
@@ -720,7 +857,8 @@ export class SalesService {
               product: product!,
               batch: b,
               customer: lockedCustomer,
-              customRule,
+              pricingRules: itemRules,
+              promotionalSchemes: itemSchemes,
               defaultPricingBase,
               billedQuantity: sliceBilled,
               bonusQuantity: sliceBonus,
@@ -867,6 +1005,10 @@ export class SalesService {
             lineTotal: new Prisma.Decimal(line.lineTotal),
             lineCost: new Prisma.Decimal(line.lineCost),
             lineProfit: new Prisma.Decimal(line.lineProfit),
+            pricingSource: line.pricingSource || null,
+            pricingRuleId: line.pricingRuleId || null,
+            schemeId: line.schemeId || null,
+            schemeName: line.schemeName || null,
           },
         });
 
@@ -978,7 +1120,9 @@ export class SalesService {
     product: any;
     batch: any;
     customer: any;
-    customRule: any;
+    pricingRules?: any[];
+    promotionalSchemes?: any[];
+    customRule?: any;
     defaultPricingBase: 'TP' | 'MRP';
     billedQuantity: number;
     bonusQuantity: number;
@@ -991,6 +1135,8 @@ export class SalesService {
       product,
       batch,
       customer,
+      pricingRules = [],
+      promotionalSchemes = [],
       customRule,
       defaultPricingBase,
       billedQuantity,
@@ -1001,66 +1147,25 @@ export class SalesService {
       remarks,
     } = params;
 
-    const retailPrice = Number(batch.retail_price ?? batch.retailPrice);
-    const tradePrice = Number(batch.trade_price ?? batch.tradePrice);
-    const unitCost = Number(batch.purchase_cost ?? batch.purchaseCost);
+    const allRules = customRule ? [customRule, ...pricingRules] : pricingRules;
 
-    // 1. Resolve Base Unit Price
-    let unitPrice = 0;
-    if (manualUnitPrice !== undefined && manualUnitPrice !== null) {
-      unitPrice = Number(manualUnitPrice);
-    } else if (customRule?.customPrice) {
-      unitPrice = Number(customRule.customPrice);
-    } else if (defaultPricingBase === 'MRP') {
-      unitPrice = retailPrice;
-    } else {
-      unitPrice = tradePrice;
-    }
-
-    // 2. Resolve Discount (Precedence: Manual > CustomRule > Customer Default. Discounts do NOT stack)
-    let discountPercentage = 0;
-    if (manualDiscountPct !== undefined && manualDiscountPct !== null) {
-      discountPercentage = Number(manualDiscountPct);
-    } else if (customRule?.discountPercentage) {
-      discountPercentage = Number(customRule.discountPercentage);
-    } else if (customer.default_discount_percentage || customer.defaultDiscountPercentage) {
-      discountPercentage = Number(
-        customer.default_discount_percentage || customer.defaultDiscountPercentage,
-      );
-    }
-
-    // 3. MRP Ceiling Validation Invariant
-    const effectiveUnitPrice = unitPrice * (1 - discountPercentage / 100);
-    if (unitPrice > retailPrice || effectiveUnitPrice > retailPrice) {
-      throw new BadRequestException(
-        `Unit price Rs.${unitPrice.toFixed(
-          2,
-        )} for product "${product.name}" exceeds Maximum Retail Price (MRP) Rs.${retailPrice.toFixed(
-          2,
-        )}`,
-      );
-    }
-
-    // 4. Tax percentage
-    const isTaxExempt = customer.is_tax_exempt ?? customer.isTaxExempt;
-    let taxPercentage = 0;
-    if (!isTaxExempt) {
-      taxPercentage =
-        manualTaxPct !== undefined && manualTaxPct !== null
-          ? Number(manualTaxPct)
-          : Number(product.taxPercentage);
-    }
-
-    // 5. Line Totals
-    const gross = billedQuantity * unitPrice;
-    const discountAmount = gross * (discountPercentage / 100);
-    const taxableAmount = gross - discountAmount;
-    const taxAmount = taxableAmount * (taxPercentage / 100);
-    const lineTotal = taxableAmount + taxAmount;
+    const resolution = this.pricingEngine.resolvePricing({
+      product,
+      batch,
+      customer,
+      quantity: billedQuantity,
+      pricingRules: allRules,
+      promotionalSchemes,
+      defaultPricingBase,
+      manualUnitPrice,
+      manualDiscountPercentage: manualDiscountPct,
+      manualTaxPercentage: manualTaxPct,
+    });
 
     const totalQuantity = billedQuantity + bonusQuantity;
+    const unitCost = Number(batch.purchase_cost ?? batch.purchaseCost ?? 0);
     const lineCost = totalQuantity * unitCost;
-    const lineProfit = taxableAmount - lineCost;
+    const lineProfit = resolution.netLineTotal - lineCost;
 
     return {
       productId: product.id,
@@ -1071,16 +1176,20 @@ export class SalesService {
       bonusQuantity,
       totalQuantity,
       unitCost,
-      tradePrice,
-      retailPrice,
-      unitPrice,
-      discountPercentage,
-      discountAmount,
-      taxPercentage,
-      taxAmount,
-      lineTotal,
+      tradePrice: resolution.tradePrice,
+      retailPrice: resolution.retailPrice,
+      unitPrice: resolution.baseUnitPrice,
+      discountPercentage: resolution.discountPercentage,
+      discountAmount: resolution.discountAmount,
+      taxPercentage: resolution.taxPercentage,
+      taxAmount: resolution.taxAmount,
+      lineTotal: resolution.finalTotalWithTax,
       lineCost,
       lineProfit,
+      pricingSource: resolution.pricingSource,
+      pricingRuleId: resolution.pricingRuleId,
+      schemeId: resolution.schemeId,
+      schemeName: resolution.schemeName,
       remarks,
     };
   }
