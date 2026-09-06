@@ -53,8 +53,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
       }
     } else if (exception instanceof Error) {
-      errorMessage = exception.message;
-      errorCode = exception.name?.toUpperCase().replace(/\s+/g, '_') || 'ERROR';
+      const isProd = process.env.NODE_ENV === 'production';
+      errorMessage = isProd
+        ? 'An unexpected internal server error occurred'
+        : exception.message;
+      errorCode =
+        exception.name?.toUpperCase().replace(/\s+/g, '_') || 'ERROR';
 
       this.logger.error(
         `Unhandled Exception [${request.correlationId || 'N/A'}]: ${exception.message}`,
