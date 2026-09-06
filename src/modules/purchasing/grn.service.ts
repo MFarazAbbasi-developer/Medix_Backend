@@ -665,6 +665,8 @@ export class GrnService {
         data: {
           grnNumber: documentNumber,
           status: GrnStatus.POSTED,
+          paidAmount: new Prisma.Decimal(0),
+          balanceAmount: grn.netTotal,
           postedAt: new Date(),
           postedByUserId: userId,
         },

@@ -31,29 +31,32 @@ model SystemInstallation {
 
 /// User account model
 model User {
-  id            String         @id @default(uuid())
-  username      String         @unique
-  displayName   String         @map("display_name")
-  passwordHash  String         @map("password_hash")
-  status        UserStatus     @default(ACTIVE)
-  lastLoginAt   DateTime?      @map("last_login_at")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  userRoles     UserRole[]
-  refreshTokens RefreshToken[]
-  auditLogs             AuditLog[]
-  stockMovements        StockMovement[]
-  postedAdjustments     StockAdjustment[]
-  postedGrns            GoodsReceiveNote[]
-  supplierLedgerEntries SupplierLedgerEntry[]
-  postedSalesInvoices   SalesInvoice[]        @relation("SalesInvoicePostedBy")
-  cancelledSalesInvoices SalesInvoice[]       @relation("SalesInvoiceCancelledBy")
-  customerLedgerEntries CustomerLedgerEntry[]
-  postedCustomerPayments CustomerPayment[]    @relation("CustomerPaymentPostedBy")
-  cancelledCustomerPayments CustomerPayment[] @relation("CustomerPaymentCancelledBy")
-  postedSalesReturns    SalesReturn[]         @relation("SalesReturnPostedBy")
-  cancelledSalesReturns SalesReturn[]         @relation("SalesReturnCancelledBy")
-
+  id                        String                @id @default(uuid())
+  username                  String                @unique
+  displayName               String                @map("display_name")
+  passwordHash              String                @map("password_hash")
+  status                    UserStatus            @default(ACTIVE)
+  lastLoginAt               DateTime?             @map("last_login_at")
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
+  userRoles                 UserRole[]
+  refreshTokens             RefreshToken[]
+  auditLogs                 AuditLog[]
+  stockMovements            StockMovement[]
+  postedAdjustments         StockAdjustment[]
+  postedGrns                GoodsReceiveNote[]
+  supplierLedgerEntries     SupplierLedgerEntry[]
+  postedSalesInvoices       SalesInvoice[]        @relation("SalesInvoicePostedBy")
+  cancelledSalesInvoices    SalesInvoice[]        @relation("SalesInvoiceCancelledBy")
+  customerLedgerEntries     CustomerLedgerEntry[]
+  postedCustomerPayments    CustomerPayment[]     @relation("CustomerPaymentPostedBy")
+  cancelledCustomerPayments CustomerPayment[]     @relation("CustomerPaymentCancelledBy")
+  postedSalesReturns        SalesReturn[]         @relation("SalesReturnPostedBy")
+  cancelledSalesReturns     SalesReturn[]         @relation("SalesReturnCancelledBy")
+  postedSupplierPayments    SupplierPayment[]     @relation("SupplierPaymentPostedBy")
+  cancelledSupplierPayments SupplierPayment[]     @relation("SupplierPaymentCancelledBy")
+  postedPurchaseReturns     PurchaseReturn[]      @relation("PurchaseReturnPostedBy")
+  cancelledPurchaseReturns  PurchaseReturn[]      @relation("PurchaseReturnCancelledBy")
 
   @@map("users")
 }
@@ -143,23 +146,23 @@ enum SettingDataType {
 
 /// Organization / Business Profile model
 model Organization {
-  id                String            @id @default(uuid())
+  id                String   @id @default(uuid())
   name              String
-  legalName         String?           @map("legal_name")
+  legalName         String?  @map("legal_name")
   address           String?
   city              String?
   state             String?
-  country           String            @default("Pakistan")
-  postalCode        String?           @map("postal_code")
+  country           String   @default("Pakistan")
+  postalCode        String?  @map("postal_code")
   phone             String?
   email             String?
   website           String?
-  ntn               String?           // National Tax Number (Pakistani compliance)
-  strn              String?           // Sales Tax Registration Number
-  drugSaleLicenseNo String?           @map("drug_sale_license_no") // Drug Sale License (Pakistani compliance)
-  logoUrl           String?           @map("logo_url")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  ntn               String? // National Tax Number (Pakistani compliance)
+  strn              String? // Sales Tax Registration Number
+  drugSaleLicenseNo String?  @map("drug_sale_license_no") // Drug Sale License (Pakistani compliance)
+  logoUrl           String?  @map("logo_url")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   branches              Branch[]
   numberingSeries       NumberingSeries[]
@@ -181,24 +184,26 @@ model Organization {
   salesInvoices         SalesInvoice[]
   customerPayments      CustomerPayment[]
   salesReturns          SalesReturn[]
+  supplierPayments      SupplierPayment[]
+  purchaseReturns       PurchaseReturn[]
 
   @@map("organizations")
 }
 
 /// Branch model
 model Branch {
-  id              String            @id @default(uuid())
-  organizationId  String            @map("organization_id")
-  name            String
-  code            String            // e.g. "HO", "BR01"
-  address         String?
-  city            String?
-  phone           String?
-  email           String?
-  isHeadOffice    Boolean           @default(false) @map("is_head_office")
-  isActive        Boolean           @default(true) @map("is_active")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  code           String // e.g. "HO", "BR01"
+  address        String?
+  city           String?
+  phone          String?
+  email          String?
+  isHeadOffice   Boolean  @default(false) @map("is_head_office")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization          Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   numberingSeries       NumberingSeries[]
@@ -212,6 +217,8 @@ model Branch {
   salesInvoices         SalesInvoice[]
   customerPayments      CustomerPayment[]
   salesReturns          SalesReturn[]
+  supplierPayments      SupplierPayment[]
+  purchaseReturns       PurchaseReturn[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -231,8 +238,8 @@ model NumberingSeries {
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, branchId, documentType])
   @@map("numbering_series")
@@ -250,7 +257,7 @@ model SystemSetting {
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, key])
   @@map("system_settings")
@@ -268,7 +275,7 @@ model AuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([entity, entityId])
@@ -284,20 +291,20 @@ enum BatchStatus {
 
 /// Pharmaceutical Manufacturer / Principal model
 model Manufacturer {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
   name           String
   code           String?
-  contactPerson  String?      @map("contact_person")
+  contactPerson  String?  @map("contact_person")
   phone          String?
   email          String?
   address        String?
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  products       Product[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products     Product[]
 
   @@unique([organizationId, name])
   @@map("manufacturers")
@@ -305,17 +312,17 @@ model Manufacturer {
 
 /// Product Category model (e.g. Antibiotics, Analgesics, Cardiac, OTC)
 model ProductCategory {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
   name           String
   code           String?
   description    String?
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  products       Product[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products     Product[]
 
   @@unique([organizationId, name])
   @@map("product_categories")
@@ -323,16 +330,16 @@ model ProductCategory {
 
 /// Unit of Measurement model (e.g. Box, Strip, Bottle, Ampoule, Vial)
 model UnitOfMeasurement {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
   name           String
   symbol         String
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  products       Product[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  products     Product[]
 
   @@unique([organizationId, symbol])
   @@map("units_of_measurement")
@@ -340,23 +347,23 @@ model UnitOfMeasurement {
 
 /// Pharmaceutical Product / SKU Master model
 model Product {
-  id                    String                 @id @default(uuid())
-  organizationId        String                 @map("organization_id")
-  sku                   String                 // User-defined SKU / Item Code
-  name                  String                 // Commercial Brand Name e.g. "Panadol 500mg"
-  genericName           String                 @map("generic_name") // e.g. "Paracetamol"
-  manufacturerId        String?                @map("manufacturer_id")
-  categoryId            String?                @map("category_id")
-  unitId                String?                @map("unit_id")
-  dosageForm            String?                @map("dosage_form") // Flexible string e.g. "Tablet", "Syrup"
-  strength              String?                // e.g. "500mg", "250mg/5ml"
-  packSize              String?                @map("pack_size") // e.g. "10x10", "1x60ml"
-  barcode               String?
-  taxPercentage         Decimal                @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  description           String?
-  isActive              Boolean                @default(true) @map("is_active")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  sku            String // User-defined SKU / Item Code
+  name           String // Commercial Brand Name e.g. "Panadol 500mg"
+  genericName    String   @map("generic_name") // e.g. "Paracetamol"
+  manufacturerId String?  @map("manufacturer_id")
+  categoryId     String?  @map("category_id")
+  unitId         String?  @map("unit_id")
+  dosageForm     String?  @map("dosage_form") // Flexible string e.g. "Tablet", "Syrup"
+  strength       String? // e.g. "500mg", "250mg/5ml"
+  packSize       String?  @map("pack_size") // e.g. "10x10", "1x60ml"
+  barcode        String?
+  taxPercentage  Decimal  @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  description    String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   manufacturer          Manufacturer?          @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
@@ -370,6 +377,7 @@ model Product {
   salesInvoiceItems     SalesInvoiceItem[]
   customerPricingRules  CustomerPricingRule[]
   salesReturnItems      SalesReturnItem[]
+  purchaseReturnItems   PurchaseReturnItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -380,18 +388,18 @@ model Product {
 
 /// Pharmaceutical Batch / Lot model
 model Batch {
-  id                    String                 @id @default(uuid())
-  productId             String                 @map("product_id")
-  batchNumber           String                 @map("batch_number") // e.g. "BN-99201"
-  mfgDate               DateTime?              @map("mfg_date")
-  expiryDate            DateTime               @map("expiry_date")
-  purchaseCost          Decimal                @map("purchase_cost") @db.Decimal(12, 2)
-  tradePrice            Decimal                @map("trade_price") @db.Decimal(12, 2)   // TP (Regulated Trade Price)
-  retailPrice           Decimal                @map("retail_price") @db.Decimal(12, 2)  // MRP (Max Retail Price)
-  status                BatchStatus            @default(ACTIVE)
-  remarks               String?
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  id           String      @id @default(uuid())
+  productId    String      @map("product_id")
+  batchNumber  String      @map("batch_number") // e.g. "BN-99201"
+  mfgDate      DateTime?   @map("mfg_date")
+  expiryDate   DateTime    @map("expiry_date")
+  purchaseCost Decimal     @map("purchase_cost") @db.Decimal(12, 2)
+  tradePrice   Decimal     @map("trade_price") @db.Decimal(12, 2) // TP (Regulated Trade Price)
+  retailPrice  Decimal     @map("retail_price") @db.Decimal(12, 2) // MRP (Max Retail Price)
+  status       BatchStatus @default(ACTIVE)
+  remarks      String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
 
   product               Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
   stockMovements        StockMovement[]
@@ -399,6 +407,7 @@ model Batch {
   goodsReceiveNoteItems GoodsReceiveNoteItem[]
   salesInvoiceItems     SalesInvoiceItem[]
   salesReturnItems      SalesReturnItem[]
+  purchaseReturnItems   PurchaseReturnItem[]
 
   @@unique([productId, batchNumber])
   @@index([productId, expiryDate])
@@ -407,46 +416,47 @@ model Batch {
 }
 
 enum WarehouseType {
-  STANDARD              // Dispensary, main distribution shelf, active picking area
-  QUARANTINE            // Damaged, expired, cold-chain compromised, customer-returned quarantine
+  STANDARD // Dispensary, main distribution shelf, active picking area
+  QUARANTINE // Damaged, expired, cold-chain compromised, customer-returned quarantine
 }
 
 /// Warehouse / Storage Location model (anchored to Branch)
 model Warehouse {
-  id                String             @id @default(uuid())
-  organizationId    String             @map("organization_id")
-  branchId          String             @map("branch_id")
-  name              String             // e.g. "Main Warehouse", "Quarantine Section"
-  code              String             // e.g. "WH-MAIN", "WH-QUAR"
-  address           String?
-  warehouseType     WarehouseType      @default(STANDARD) @map("warehouse_type")
-  isDefault         Boolean            @default(false) @map("is_default")
-  isActive          Boolean            @default(true) @map("is_active")
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  branchId       String        @map("branch_id")
+  name           String // e.g. "Main Warehouse", "Quarantine Section"
+  code           String // e.g. "WH-MAIN", "WH-QUAR"
+  address        String?
+  warehouseType  WarehouseType @default(STANDARD) @map("warehouse_type")
+  isDefault      Boolean       @default(false) @map("is_default")
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch            Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  stockMovements    StockMovement[]
-  stockAdjustments  StockAdjustment[]
-  goodsReceiveNotes GoodsReceiveNote[]
-  salesInvoices     SalesInvoice[]
-  salesReturnItems  SalesReturnItem[]
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  stockMovements      StockMovement[]
+  stockAdjustments    StockAdjustment[]
+  goodsReceiveNotes   GoodsReceiveNote[]
+  salesInvoices       SalesInvoice[]
+  salesReturnItems    SalesReturnItem[]
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@unique([branchId, code])
   @@map("warehouses")
 }
 
 enum StockMovementType {
-  OPENING_BALANCE       // Initial system bootstrap / stock setup (+)
-  STOCK_ADJUSTMENT_IN   // Physical count positive variance (+)
-  STOCK_ADJUSTMENT_OUT  // Physical count negative variance / damage / disposal (-)
-  TRANSFER_IN           // Internal warehouse receiving (+) [Reserved]
-  TRANSFER_OUT          // Internal warehouse dispatch (-) [Reserved]
-  PURCHASE_RECEIPT      // Supplier GRN receiving (+)
-  PURCHASE_RETURN       // Vendor return debit note (-) [Reserved]
-  SALES_ISSUE           // Customer invoice delivery (-) [Reserved]
-  SALES_RETURN          // Customer sales return credit note (+) [Reserved]
+  OPENING_BALANCE // Initial system bootstrap / stock setup (+)
+  STOCK_ADJUSTMENT_IN // Physical count positive variance (+)
+  STOCK_ADJUSTMENT_OUT // Physical count negative variance / damage / disposal (-)
+  TRANSFER_IN // Internal warehouse receiving (+) [Reserved]
+  TRANSFER_OUT // Internal warehouse dispatch (-) [Reserved]
+  PURCHASE_RECEIPT // Supplier GRN receiving (+)
+  PURCHASE_RETURN // Vendor return debit note (-) [Reserved]
+  SALES_ISSUE // Customer invoice delivery (-) [Reserved]
+  SALES_RETURN // Customer sales return credit note (+) [Reserved]
 }
 
 /// Immutable Stock Movement Ledger
@@ -458,21 +468,21 @@ model StockMovement {
   productId       String            @map("product_id")
   batchId         String            @map("batch_id")
   movementType    StockMovementType @map("movement_type")
-  quantity        Int               // Signed: positive for inflow (+), negative for outflow (-)
+  quantity        Int // Signed: positive for inflow (+), negative for outflow (-)
   unitCost        Decimal           @map("unit_cost") @db.Decimal(12, 2)
   referenceType   String            @map("reference_type") // e.g. "STOCK_ADJUSTMENT", "OPENING_BALANCE", "GOODS_RECEIVE_NOTE"
-  referenceId     String?           @map("reference_id")   // ID of source document
+  referenceId     String?           @map("reference_id") // ID of source document
   movementDate    DateTime          @default(now()) @map("movement_date")
   notes           String?
   createdByUserId String?           @map("created_by_user_id")
   createdAt       DateTime          @default(now()) @map("created_at")
 
-  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch          Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouse       Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  product         Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
-  batch           Batch             @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch        Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse     Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product       Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch         Batch        @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  createdByUser User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, branchId, warehouseId])
   @@index([productId, batchId])
@@ -510,11 +520,11 @@ model StockAdjustment {
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
 
-  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch           Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouse        Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  postedByUser     User?                 @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
-  items            StockAdjustmentItem[]
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  postedByUser User?                 @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
+  items        StockAdjustmentItem[]
 
   @@unique([organizationId, adjustmentNumber])
   @@index([branchId, warehouseId])
@@ -523,17 +533,17 @@ model StockAdjustment {
 
 /// Stock Adjustment Line Item (records Counted vs Current Variance)
 model StockAdjustmentItem {
-  id             String          @id @default(uuid())
-  adjustmentId   String          @map("adjustment_id")
-  productId      String          @map("product_id")
-  batchId        String          @map("batch_id")
-  quantity       Int             // Variance quantity (counted - current): positive (+) for increase, negative (-) for decrease
-  unitCost       Decimal         @map("unit_cost") @db.Decimal(12, 2)
-  remarks        String?
+  id           String  @id @default(uuid())
+  adjustmentId String  @map("adjustment_id")
+  productId    String  @map("product_id")
+  batchId      String  @map("batch_id")
+  quantity     Int // Variance quantity (counted - current): positive (+) for increase, negative (-) for decrease
+  unitCost     Decimal @map("unit_cost") @db.Decimal(12, 2)
+  remarks      String?
 
-  adjustment     StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
-  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  batch          Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  adjustment StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch      Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
 
   @@map("stock_adjustment_items")
 }
@@ -544,29 +554,31 @@ model StockAdjustmentItem {
 
 /// Supplier / Vendor Master Model
 model Supplier {
-  id                String                 @id @default(uuid())
-  organizationId    String                 @map("organization_id")
-  code              String                 // e.g. "SUP-001" (unique per organization)
-  name              String                 // e.g. "Getz Pharma Distribution"
-  contactPerson     String?                @map("contact_person")
-  phone             String?
-  email             String?
-  address           String?
-  city              String?
-  ntn               String?                // National Tax Number (Pakistani compliance)
-  strn              String?                // Sales Tax Registration Number
-  drugLicenseNo     String?                @map("drug_license_no") // Drug Sale License
-  creditDays        Int                    @default(30) @map("credit_days")
-  creditLimit       Decimal                @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
-  currentBalance    Decimal                @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached organization-wide payable balance
-  isActive          Boolean                @default(true) @map("is_active")
-  createdAt         DateTime               @default(now()) @map("created_at")
-  updatedAt         DateTime               @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  code           String // e.g. "SUP-001" (unique per organization)
+  name           String // e.g. "Getz Pharma Distribution"
+  contactPerson  String?  @map("contact_person")
+  phone          String?
+  email          String?
+  address        String?
+  city           String?
+  ntn            String? // National Tax Number (Pakistani compliance)
+  strn           String? // Sales Tax Registration Number
+  drugLicenseNo  String?  @map("drug_license_no") // Drug Sale License
+  creditDays     Int      @default(30) @map("credit_days")
+  creditLimit    Decimal  @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance Decimal  @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached organization-wide payable balance
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   purchaseOrders    PurchaseOrder[]
   goodsReceiveNotes GoodsReceiveNote[]
   ledgerEntries     SupplierLedgerEntry[]
+  supplierPayments  SupplierPayment[]
+  purchaseReturns   PurchaseReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -584,28 +596,28 @@ enum PurchaseOrderStatus {
 
 /// Purchase Order (Commercial Intent / Order Document)
 model PurchaseOrder {
-  id                 String              @id @default(uuid())
-  organizationId     String              @map("organization_id")
-  branchId           String              @map("branch_id")
-  supplierId         String              @map("supplier_id")
-  poNumber           String              @map("po_number") // Sequential via NumberingService (DocumentType.PURCHASE_ORDER)
-  orderDate          DateTime            @default(now()) @map("order_date")
-  expectedDate       DateTime?           @map("expected_date")
-  status             PurchaseOrderStatus @default(DRAFT)
-  subtotal           Decimal             @default(0.00) @map("subtotal") @db.Decimal(12, 2)
-  taxAmount          Decimal             @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
-  discountAmount     Decimal             @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  netTotal           Decimal             @default(0.00) @map("net_total") @db.Decimal(12, 2)
-  notes              String?
-  createdById        String?             @map("created_by_id")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  branchId       String              @map("branch_id")
+  supplierId     String              @map("supplier_id")
+  poNumber       String              @map("po_number") // Sequential via NumberingService (DocumentType.PURCHASE_ORDER)
+  orderDate      DateTime            @default(now()) @map("order_date")
+  expectedDate   DateTime?           @map("expected_date")
+  status         PurchaseOrderStatus @default(DRAFT)
+  subtotal       Decimal             @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  taxAmount      Decimal             @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount Decimal             @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  netTotal       Decimal             @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  notes          String?
+  createdById    String?             @map("created_by_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
 
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  supplier           Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items              PurchaseOrderItem[]
-  goodsReceiveNotes  GoodsReceiveNote[]
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier          Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items             PurchaseOrderItem[]
+  goodsReceiveNotes GoodsReceiveNote[]
 
   @@unique([organizationId, poNumber])
   @@index([organizationId, branchId, supplierId])
@@ -615,20 +627,20 @@ model PurchaseOrder {
 
 /// Purchase Order Line Item
 model PurchaseOrderItem {
-  id                 String              @id @default(uuid())
-  purchaseOrderId    String              @map("purchase_order_id")
-  productId          String              @map("product_id")
-  orderedQuantity    Int                 @map("ordered_quantity")
-  receivedQuantity   Int                 @default(0) @map("received_quantity")
-  unitCost           Decimal             @map("unit_cost") @db.Decimal(12, 2)
-  discountPercentage Decimal             @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
-  taxPercentage      Decimal             @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  lineTotal          Decimal             @map("line_total") @db.Decimal(12, 2)
+  id                 String  @id @default(uuid())
+  purchaseOrderId    String  @map("purchase_order_id")
+  productId          String  @map("product_id")
+  orderedQuantity    Int     @map("ordered_quantity")
+  receivedQuantity   Int     @default(0) @map("received_quantity")
+  unitCost           Decimal @map("unit_cost") @db.Decimal(12, 2)
+  discountPercentage Decimal @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  taxPercentage      Decimal @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  lineTotal          Decimal @map("line_total") @db.Decimal(12, 2)
   remarks            String?
 
-  purchaseOrder      PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product            Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
-  grnItems           GoodsReceiveNoteItem[]
+  purchaseOrder PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  grnItems      GoodsReceiveNoteItem[]
 
   @@map("purchase_order_items")
 }
@@ -641,35 +653,39 @@ enum GrnStatus {
 
 /// Goods Receive Note (Physical Receiving, Stock Ledger & Payable Billing)
 model GoodsReceiveNote {
-  id                    String                 @id @default(uuid())
-  organizationId        String                 @map("organization_id")
-  branchId              String                 @map("branch_id")
-  warehouseId           String                 @map("warehouse_id")
-  supplierId            String                 @map("supplier_id")
-  purchaseOrderId       String?                @map("purchase_order_id") // Optional link to PO
-  grnNumber             String                 @map("grn_number")        // Sequential via NumberingService (DocumentType.GOODS_RECEIVE_NOTE)
-  supplierInvoiceNumber String?                @map("supplier_invoice_number") // Vendor's delivery bill / invoice number
-  supplierInvoiceDate   DateTime?              @map("supplier_invoice_date")
-  receivedDate          DateTime               @default(now()) @map("received_date")
-  status                GrnStatus              @default(DRAFT)
-  subtotal              Decimal                @default(0.00) @map("subtotal") @db.Decimal(12, 2)
-  taxAmount             Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
-  discountAmount        Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  netTotal              Decimal                @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  id                    String    @id @default(uuid())
+  organizationId        String    @map("organization_id")
+  branchId              String    @map("branch_id")
+  warehouseId           String    @map("warehouse_id")
+  supplierId            String    @map("supplier_id")
+  purchaseOrderId       String?   @map("purchase_order_id") // Optional link to PO
+  grnNumber             String    @map("grn_number") // Sequential via NumberingService (DocumentType.GOODS_RECEIVE_NOTE)
+  supplierInvoiceNumber String?   @map("supplier_invoice_number") // Vendor's delivery bill / invoice number
+  supplierInvoiceDate   DateTime? @map("supplier_invoice_date")
+  receivedDate          DateTime  @default(now()) @map("received_date")
+  status                GrnStatus @default(DRAFT)
+  subtotal              Decimal   @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  taxAmount             Decimal   @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount        Decimal   @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  netTotal              Decimal   @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  paidAmount            Decimal   @default(0.00) @map("paid_amount") @db.Decimal(12, 2)
+  balanceAmount         Decimal   @default(0.00) @map("balance_amount") @db.Decimal(12, 2)
   notes                 String?
-  postedAt              DateTime?              @map("posted_at")
-  postedByUserId        String?                @map("posted_by_user_id")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  postedAt              DateTime? @map("posted_at")
+  postedByUserId        String?   @map("posted_by_user_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch                Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouse             Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  supplier              Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  purchaseOrder         PurchaseOrder?         @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
-  postedByUser          User?                  @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
-  items                 GoodsReceiveNoteItem[]
-  ledgerEntries         SupplierLedgerEntry[]
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch                      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse                   @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  supplier           Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseOrder      PurchaseOrder?              @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  postedByUser       User?                       @relation(fields: [postedByUserId], references: [id], onDelete: SetNull)
+  items              GoodsReceiveNoteItem[]
+  ledgerEntries      SupplierLedgerEntry[]
+  paymentAllocations SupplierPaymentAllocation[]
+  purchaseReturns    PurchaseReturn[]
 
   @@unique([organizationId, grnNumber])
   @@index([organizationId, branchId, warehouseId])
@@ -680,66 +696,235 @@ model GoodsReceiveNote {
 
 /// Goods Receive Note Line Item (Batch capture & itemized cost)
 model GoodsReceiveNoteItem {
-  id                 String              @id @default(uuid())
-  grnId              String              @map("grn_id")
-  poItemId           String?             @map("po_item_id")
-  productId          String              @map("product_id")
-  batchId            String?             @map("batch_id") // Assigned / Created upon receiving
-  batchNumber        String              @map("batch_number")
-  mfgDate            DateTime?           @map("mfg_date")
-  expiryDate         DateTime            @map("expiry_date")
-  receivedQuantity   Int                 @map("received_quantity") // Billed Units received
-  bonusQuantity      Int                 @default(0) @map("bonus_quantity") // Free / Bonus units from vendor (0 cost)
-  unitCost           Decimal             @map("unit_cost") @db.Decimal(12, 2) // Received purchase price per unit snapshot
-  tradePrice         Decimal             @map("trade_price") @db.Decimal(12, 2) // Regulated TP snapshot
-  retailPrice        Decimal             @map("retail_price") @db.Decimal(12, 2) // Regulated MRP snapshot
-  discountPercentage Decimal             @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
-  taxPercentage      Decimal             @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  lineTotal          Decimal             @map("line_total") @db.Decimal(12, 2) // (receivedQty * unitCost) - discount + tax
+  id                 String    @id @default(uuid())
+  grnId              String    @map("grn_id")
+  poItemId           String?   @map("po_item_id")
+  productId          String    @map("product_id")
+  batchId            String?   @map("batch_id") // Assigned / Created upon receiving
+  batchNumber        String    @map("batch_number")
+  mfgDate            DateTime? @map("mfg_date")
+  expiryDate         DateTime  @map("expiry_date")
+  receivedQuantity   Int       @map("received_quantity") // Billed Units received
+  bonusQuantity      Int       @default(0) @map("bonus_quantity") // Free / Bonus units from vendor (0 cost)
+  unitCost           Decimal   @map("unit_cost") @db.Decimal(12, 2) // Received purchase price per unit snapshot
+  tradePrice         Decimal   @map("trade_price") @db.Decimal(12, 2) // Regulated TP snapshot
+  retailPrice        Decimal   @map("retail_price") @db.Decimal(12, 2) // Regulated MRP snapshot
+  discountPercentage Decimal   @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  taxPercentage      Decimal   @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  lineTotal          Decimal   @map("line_total") @db.Decimal(12, 2) // (receivedQty * unitCost) - discount + tax
   remarks            String?
 
-  grn                GoodsReceiveNote    @relation(fields: [grnId], references: [id], onDelete: Cascade)
-  poItem             PurchaseOrderItem?  @relation(fields: [poItemId], references: [id], onDelete: SetNull)
-  product            Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
-  batch              Batch?              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  grn                 GoodsReceiveNote     @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poItem              PurchaseOrderItem?   @relation(fields: [poItemId], references: [id], onDelete: SetNull)
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch               Batch?               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@map("goods_receive_note_items")
 }
 
 enum SupplierLedgerEntryType {
-  OPENING_BALANCE    // Initial vendor balance setup
-  GRN_INVOICE        // Goods receipt bill / payable addition (Credit)
-  PAYMENT            // Vendor payment / bank disbursement (Debit) [Reserved]
-  DEBIT_NOTE         // Purchase return / vendor debit (Debit) [Reserved]
-  ADJUSTMENT         // Balance correction
+  OPENING_BALANCE // Initial vendor balance setup
+  GRN_INVOICE // Goods receipt bill / payable addition (Credit)
+  PAYMENT // Vendor payment / bank disbursement (Debit)
+  DEBIT_NOTE // Purchase return / vendor debit (Debit)
+  ADJUSTMENT // Balance correction
 }
 
 /// Immutable Supplier Financial Sub-Ledger Entry
 model SupplierLedgerEntry {
-  id              String                  @id @default(uuid())
-  organizationId  String                  @map("organization_id")
-  branchId        String                  @map("branch_id")
-  supplierId      String                  @map("supplier_id")
-  grnId           String?                 @map("grn_id")
-  entryType       SupplierLedgerEntryType @map("entry_type")
-  referenceNumber String                  @map("reference_number") // e.g. "GRN-00042", "OPENING", or "INV-8891"
-  debit           Decimal                 @default(0.00) @db.Decimal(12, 2)  // Reduces payable (Payments, Returns)
-  credit          Decimal                 @default(0.00) @db.Decimal(12, 2)  // Increases payable (Purchases/GRN)
-  runningBalance  Decimal                 @map("running_balance") @db.Decimal(12, 2)
-  transactionDate DateTime                @default(now()) @map("transaction_date")
-  notes           String?
-  createdByUserId String?                 @map("created_by_user_id")
-  createdAt       DateTime                @default(now()) @map("created_at")
+  id                String                  @id @default(uuid())
+  organizationId    String                  @map("organization_id")
+  branchId          String                  @map("branch_id")
+  supplierId        String                  @map("supplier_id")
+  grnId             String?                 @map("grn_id")
+  supplierPaymentId String?                 @map("supplier_payment_id")
+  purchaseReturnId  String?                 @map("purchase_return_id")
+  entryType         SupplierLedgerEntryType @map("entry_type")
+  referenceNumber   String                  @map("reference_number") // e.g. "GRN-00042", "OPENING", or "INV-8891"
+  debit             Decimal                 @default(0.00) @db.Decimal(12, 2) // Reduces payable (Payments, Returns)
+  credit            Decimal                 @default(0.00) @db.Decimal(12, 2) // Increases payable (Purchases/GRN)
+  runningBalance    Decimal                 @map("running_balance") @db.Decimal(12, 2)
+  transactionDate   DateTime                @default(now()) @map("transaction_date")
+  notes             String?
+  createdByUserId   String?                 @map("created_by_user_id")
+  createdAt         DateTime                @default(now()) @map("created_at")
 
-  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  supplier        Supplier                @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  grn             GoodsReceiveNote?       @relation(fields: [grnId], references: [id], onDelete: SetNull)
-  createdByUser   User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier        Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  grn             GoodsReceiveNote? @relation(fields: [grnId], references: [id], onDelete: SetNull)
+  supplierPayment SupplierPayment?  @relation(fields: [supplierPaymentId], references: [id], onDelete: SetNull)
+  purchaseReturn  PurchaseReturn?   @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
+  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, supplierId, transactionDate])
   @@index([grnId])
+  @@index([supplierPaymentId])
+  @@index([purchaseReturnId])
   @@map("supplier_ledger_entries")
+}
+
+// ==========================================
+// SUPPLIER PAYMENTS & SETTLEMENT MODELS
+// ==========================================
+
+enum SupplierPaymentStatus {
+  POSTED
+  CANCELLED
+}
+
+/// Standalone Supplier Payment / Disbursement Document
+model SupplierPayment {
+  id                String        @id @default(uuid())
+  organizationId    String        @map("organization_id")
+  branchId          String        @map("branch_id")
+  supplierId        String        @map("supplier_id")
+  paymentNumber     String        @map("payment_number") // Sequential (DocumentType.PAYMENT_RECEIPT)
+  paymentDate       DateTime      @default(now()) @map("payment_date")
+  paymentMethod     PaymentMethod @map("payment_method")
+  amount            Decimal       @db.Decimal(12, 2)
+  allocatedAmount   Decimal       @default(0.00) @map("allocated_amount") @db.Decimal(12, 2)
+  unallocatedAmount Decimal       @default(0.00) @map("unallocated_amount") @db.Decimal(12, 2)
+
+  referenceNumber String?               @map("reference_number")
+  bankName        String?               @map("bank_name")
+  chequeDate      DateTime?             @map("cheque_date")
+  notes           String?
+  status          SupplierPaymentStatus @default(POSTED)
+
+  postedAt           DateTime  @default(now()) @map("posted_at")
+  postedByUserId     String?   @map("posted_by_user_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancellationReason String?   @map("cancellation_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier        Supplier     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  postedByUser    User?        @relation("SupplierPaymentPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser User?        @relation("SupplierPaymentCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+
+  allocations   SupplierPaymentAllocation[]
+  ledgerEntries SupplierLedgerEntry[]
+
+  @@unique([organizationId, paymentNumber])
+  @@index([organizationId, supplierId, paymentDate])
+  @@map("supplier_payments")
+}
+
+/// GRN Allocation breakdown for supplier payments
+model SupplierPaymentAllocation {
+  id                String   @id @default(uuid())
+  supplierPaymentId String   @map("supplier_payment_id")
+  grnId             String   @map("grn_id")
+  amountAllocated   Decimal  @map("amount_allocated") @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  supplierPayment SupplierPayment  @relation(fields: [supplierPaymentId], references: [id], onDelete: Cascade)
+  grn             GoodsReceiveNote @relation(fields: [grnId], references: [id], onDelete: Restrict)
+
+  @@index([supplierPaymentId])
+  @@index([grnId])
+  @@map("supplier_payment_allocations")
+}
+
+// ==========================================
+// PURCHASE RETURNS & DEBIT NOTE MODELS
+// ==========================================
+
+enum PurchaseReturnStatus {
+  POSTED
+  CANCELLED
+}
+
+enum PurchaseReturnReason {
+  DAMAGED_GOODS
+  DEFECTIVE_BATCH
+  NEAR_EXPIRY_RECALL
+  OVER_DELIVERY
+  WRONG_PRODUCT
+  REGULATORY_RECALL
+  OTHER
+}
+
+/// Purchase Return / Vendor Debit Note Header
+model PurchaseReturn {
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  branchId       String               @map("branch_id")
+  supplierId     String               @map("supplier_id")
+  grnId          String               @map("grn_id")
+  returnNumber   String               @map("return_number") // Sequential (DocumentType.PURCHASE_RETURN)
+  returnDate     DateTime             @default(now()) @map("return_date")
+  status         PurchaseReturnStatus @default(POSTED)
+  reason         PurchaseReturnReason @default(DAMAGED_GOODS)
+
+  subtotal       Decimal @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  discountAmount Decimal @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  netTotal       Decimal @default(0.00) @map("net_total") @db.Decimal(12, 2)
+
+  notes              String?
+  postedAt           DateTime  @default(now()) @map("posted_at")
+  postedByUserId     String?   @map("posted_by_user_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancellationReason String?   @map("cancellation_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  grn             GoodsReceiveNote @relation(fields: [grnId], references: [id], onDelete: Restrict)
+  postedByUser    User?            @relation("PurchaseReturnPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser User?            @relation("PurchaseReturnCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+
+  items         PurchaseReturnItem[]
+  ledgerEntries SupplierLedgerEntry[]
+
+  @@unique([organizationId, returnNumber])
+  @@index([organizationId, branchId, returnDate])
+  @@index([grnId])
+  @@index([supplierId])
+  @@map("purchase_returns")
+}
+
+/// Purchase Return Line Item (Discrete batch deducted from source warehouse location)
+model PurchaseReturnItem {
+  id                String   @id @default(uuid())
+  purchaseReturnId  String   @map("purchase_return_id")
+  grnItemId         String   @map("grn_item_id")
+  productId         String   @map("product_id")
+  batchId           String   @map("batch_id")
+  batchNumber       String   @map("batch_number")
+  expiryDate        DateTime @map("expiry_date")
+  sourceWarehouseId String   @map("source_warehouse_id")
+
+  returnedQuantity      Int @map("returned_quantity")
+  bonusReturnedQuantity Int @default(0) @map("bonus_returned_quantity")
+  totalReturnedQuantity Int @map("total_returned_quantity")
+
+  stockCondition     ReturnedStockCondition @default(SALEABLE) @map("stock_condition")
+  unitCost           Decimal                @map("unit_cost") @db.Decimal(12, 2)
+  discountPercentage Decimal                @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxPercentage      Decimal                @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  taxAmount          Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  lineTotal          Decimal                @map("line_total") @db.Decimal(12, 2)
+
+  purchaseReturn  PurchaseReturn       @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  grnItem         GoodsReceiveNoteItem @relation(fields: [grnItemId], references: [id], onDelete: Restrict)
+  product         Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch           Batch                @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  sourceWarehouse Warehouse            @relation(fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseReturnId])
+  @@index([grnItemId])
+  @@map("purchase_return_items")
 }
 
 // ==========================================
@@ -747,43 +932,43 @@ model SupplierLedgerEntry {
 // ==========================================
 
 enum CustomerType {
-  RETAIL_PHARMACY       // B2B Retail Pharmacy
-  HOSPITAL              // B2B Hospital / Clinic
-  DISTRIBUTOR           // B2B Sub-distributor
-  WALK_IN               // B2C Walk-in Cash Customer
-  INSTITUTIONAL         // Government / NGO / Corporate
+  RETAIL_PHARMACY // B2B Retail Pharmacy
+  HOSPITAL // B2B Hospital / Clinic
+  DISTRIBUTOR // B2B Sub-distributor
+  WALK_IN // B2C Walk-in Cash Customer
+  INSTITUTIONAL // Government / NGO / Corporate
 }
 
 /// Customer Master Data model
 model Customer {
-  id                        String                @id @default(uuid())
-  organizationId            String                @map("organization_id")
-  code                      String                // Unique per organization (e.g. "CUST-00101")
-  name                      String                // Commercial name (e.g. "Al-Shifa Pharmacy")
-  customerType              CustomerType          @default(RETAIL_PHARMACY) @map("customer_type")
-  contactPerson             String?               @map("contact_person")
+  id                        String       @id @default(uuid())
+  organizationId            String       @map("organization_id")
+  code                      String // Unique per organization (e.g. "CUST-00101")
+  name                      String // Commercial name (e.g. "Al-Shifa Pharmacy")
+  customerType              CustomerType @default(RETAIL_PHARMACY) @map("customer_type")
+  contactPerson             String?      @map("contact_person")
   phone                     String?
   email                     String?
   address                   String?
   city                      String?
-  ntn                       String?               // National Tax Number
-  strn                      String?               // Sales Tax Registration Number
-  drugSaleLicenseNo         String?               @map("drug_sale_license_no") // Regulatory compliance
-  creditDays                Int                   @default(0) @map("credit_days") // 0 = Strict Cash
-  creditLimit               Decimal               @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
-  currentBalance            Decimal               @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached total receivable balance
-  defaultDiscountPercentage Decimal               @default(0.00) @map("default_discount_percentage") @db.Decimal(5, 2)
-  isTaxExempt               Boolean               @default(false) @map("is_tax_exempt")
-  isActive                  Boolean               @default(true) @map("is_active")
-  createdAt                 DateTime              @default(now()) @map("created_at")
-  updatedAt                 DateTime              @updatedAt @map("updated_at")
+  ntn                       String? // National Tax Number
+  strn                      String? // Sales Tax Registration Number
+  drugSaleLicenseNo         String?      @map("drug_sale_license_no") // Regulatory compliance
+  creditDays                Int          @default(0) @map("credit_days") // 0 = Strict Cash
+  creditLimit               Decimal      @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance            Decimal      @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached total receivable balance
+  defaultDiscountPercentage Decimal      @default(0.00) @map("default_discount_percentage") @db.Decimal(5, 2)
+  isTaxExempt               Boolean      @default(false) @map("is_tax_exempt")
+  isActive                  Boolean      @default(true) @map("is_active")
+  createdAt                 DateTime     @default(now()) @map("created_at")
+  updatedAt                 DateTime     @updatedAt @map("updated_at")
 
-  organization              Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  salesInvoices             SalesInvoice[]
-  ledgerEntries             CustomerLedgerEntry[]
-  pricingRules              CustomerPricingRule[]
-  customerPayments          CustomerPayment[]
-  salesReturns              SalesReturn[]
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  salesInvoices    SalesInvoice[]
+  ledgerEntries    CustomerLedgerEntry[]
+  pricingRules     CustomerPricingRule[]
+  customerPayments CustomerPayment[]
+  salesReturns     SalesReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -793,59 +978,59 @@ model Customer {
 
 /// Customer-Specific Pricing Overrides (contracted rates or custom discounts)
 model CustomerPricingRule {
-  id                 String       @id @default(uuid())
-  organizationId     String       @map("organization_id")
-  customerId         String       @map("customer_id")
-  productId          String       @map("product_id")
-  customPrice        Decimal?     @map("custom_price") @db.Decimal(12, 2) // Fixed contracted unit price
-  discountPercentage Decimal?     @map("discount_percentage") @db.Decimal(5, 2) // Contracted discount %
-  isActive           Boolean      @default(true) @map("is_active")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  customerId         String   @map("customer_id")
+  productId          String   @map("product_id")
+  customPrice        Decimal? @map("custom_price") @db.Decimal(12, 2) // Fixed contracted unit price
+  discountPercentage Decimal? @map("discount_percentage") @db.Decimal(5, 2) // Contracted discount %
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  customer           Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  product            Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, productId])
   @@map("customer_pricing_rules")
 }
 
 enum CustomerLedgerEntryType {
-  OPENING_BALANCE       // Initial receivable balance setup
-  SALES_INVOICE         // Invoice issued / receivable addition (Debit)
-  PAYMENT               // Customer payment at checkout or standalone receipt (Credit)
-  CREDIT_NOTE           // Sales invoice cancellation or sales return (Credit)
-  REFUND                // Cash/bank refund payout (Debit)
-  ADJUSTMENT            // Balance correction or cancellation reversal
+  OPENING_BALANCE // Initial receivable balance setup
+  SALES_INVOICE // Invoice issued / receivable addition (Debit)
+  PAYMENT // Customer payment at checkout or standalone receipt (Credit)
+  CREDIT_NOTE // Sales invoice cancellation or sales return (Credit)
+  REFUND // Cash/bank refund payout (Debit)
+  ADJUSTMENT // Balance correction or cancellation reversal
 }
 
 /// Immutable Customer Financial Sub-Ledger Entry
 model CustomerLedgerEntry {
-  id                 String                  @id @default(uuid())
-  organizationId     String                  @map("organization_id")
-  branchId           String                  @map("branch_id")
-  customerId         String                  @map("customer_id")
-  salesInvoiceId     String?                 @map("sales_invoice_id")
-  customerPaymentId  String?                 @map("customer_payment_id")
-  salesReturnId      String?                 @map("sales_return_id")
-  entryType          CustomerLedgerEntryType @map("entry_type")
-  referenceNumber    String                  @map("reference_number") // e.g. "INV-00102", "REC-00045", "SRET-00001"
-  debit              Decimal                 @default(0.00) @db.Decimal(12, 2) // Increases receivable
-  credit             Decimal                 @default(0.00) @db.Decimal(12, 2) // Decreases receivable
-  runningBalance     Decimal                 @map("running_balance") @db.Decimal(12, 2)
-  transactionDate    DateTime                @default(now()) @map("transaction_date")
-  notes              String?
-  createdByUserId    String?                 @map("created_by_user_id")
-  createdAt          DateTime                @default(now()) @map("created_at")
+  id                String                  @id @default(uuid())
+  organizationId    String                  @map("organization_id")
+  branchId          String                  @map("branch_id")
+  customerId        String                  @map("customer_id")
+  salesInvoiceId    String?                 @map("sales_invoice_id")
+  customerPaymentId String?                 @map("customer_payment_id")
+  salesReturnId     String?                 @map("sales_return_id")
+  entryType         CustomerLedgerEntryType @map("entry_type")
+  referenceNumber   String                  @map("reference_number") // e.g. "INV-00102", "REC-00045", "SRET-00001"
+  debit             Decimal                 @default(0.00) @db.Decimal(12, 2) // Increases receivable
+  credit            Decimal                 @default(0.00) @db.Decimal(12, 2) // Decreases receivable
+  runningBalance    Decimal                 @map("running_balance") @db.Decimal(12, 2)
+  transactionDate   DateTime                @default(now()) @map("transaction_date")
+  notes             String?
+  createdByUserId   String?                 @map("created_by_user_id")
+  createdAt         DateTime                @default(now()) @map("created_at")
 
-  organization       Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch             Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  customer           Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  salesInvoice       SalesInvoice?           @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
-  customerPayment    CustomerPayment?        @relation(fields: [customerPaymentId], references: [id], onDelete: SetNull)
-  salesReturn        SalesReturn?            @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
-  createdByUser      User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesInvoice    SalesInvoice?    @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  customerPayment CustomerPayment? @relation(fields: [customerPaymentId], references: [id], onDelete: SetNull)
+  salesReturn     SalesReturn?     @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
+  createdByUser   User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, customerId, transactionDate])
   @@index([salesInvoiceId])
@@ -859,9 +1044,9 @@ model CustomerLedgerEntry {
 // ==========================================
 
 enum SalesInvoiceStatus {
-  DRAFT                 // Unposted quotation / parked bill (no stock deducted, no number consumed)
-  POSTED                // Immutable finalized sale (stock deducted, invoice number assigned, ledger updated)
-  CANCELLED             // Formally voided/cancelled (stock restored, ledger reversed)
+  DRAFT // Unposted quotation / parked bill (no stock deducted, no number consumed)
+  POSTED // Immutable finalized sale (stock deducted, invoice number assigned, ledger updated)
+  CANCELLED // Formally voided/cancelled (stock restored, ledger reversed)
 }
 
 enum PaymentMethod {
@@ -870,47 +1055,47 @@ enum PaymentMethod {
   CREDIT_CARD
   CHEQUE
   ONLINE
-  CREDIT_ACCOUNT        // Billed to customer credit account
+  CREDIT_ACCOUNT // Billed to customer credit account
 }
 
 /// Sales Invoice Header
 model SalesInvoice {
-  id                 String                 @id @default(uuid())
-  organizationId     String                 @map("organization_id")
-  branchId           String                 @map("branch_id")
-  warehouseId        String                 @map("warehouse_id")
-  customerId         String                 @map("customer_id")
-  invoiceNumber      String?                @map("invoice_number") // Null in DRAFT, generated on POSTED via NumberingService
-  draftNumber        String?                @map("draft_number")   // Temporary identifier for parked drafts (e.g. "DFT-00102")
-  invoiceDate        DateTime               @default(now()) @map("invoice_date")
-  status             SalesInvoiceStatus     @default(DRAFT)
-  paymentMethod      PaymentMethod          @default(CASH) @map("payment_method")
-  
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  branchId       String             @map("branch_id")
+  warehouseId    String             @map("warehouse_id")
+  customerId     String             @map("customer_id")
+  invoiceNumber  String?            @map("invoice_number") // Null in DRAFT, generated on POSTED via NumberingService
+  draftNumber    String?            @map("draft_number") // Temporary identifier for parked drafts (e.g. "DFT-00102")
+  invoiceDate    DateTime           @default(now()) @map("invoice_date")
+  status         SalesInvoiceStatus @default(DRAFT)
+  paymentMethod  PaymentMethod      @default(CASH) @map("payment_method")
+
   // Financial Totals
-  subtotal           Decimal                @default(0.00) @map("subtotal") @db.Decimal(12, 2) // Sum of gross lines
-  discountAmount     Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2) // Total line & invoice discount
-  taxAmount          Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2) // Total GST/Sales tax
-  netTotal           Decimal                @default(0.00) @map("net_total") @db.Decimal(12, 2) // Total amount payable
-  paidAmount         Decimal                @default(0.00) @map("paid_amount") @db.Decimal(12, 2) // Sum of checkout tenders & payment allocations
-  balanceAmount      Decimal                @default(0.00) @map("balance_amount") @db.Decimal(12, 2) // Net outstanding (strictly >= 0)
-  totalCostPrice     Decimal                @default(0.00) @map("total_cost_price") @db.Decimal(12, 2) // Total COGS snapshot
-  grossProfit        Decimal                @default(0.00) @map("gross_profit") @db.Decimal(12, 2) // (netTotal - taxAmount) - totalCostPrice
+  subtotal       Decimal @default(0.00) @map("subtotal") @db.Decimal(12, 2) // Sum of gross lines
+  discountAmount Decimal @default(0.00) @map("discount_amount") @db.Decimal(12, 2) // Total line & invoice discount
+  taxAmount      Decimal @default(0.00) @map("tax_amount") @db.Decimal(12, 2) // Total GST/Sales tax
+  netTotal       Decimal @default(0.00) @map("net_total") @db.Decimal(12, 2) // Total amount payable
+  paidAmount     Decimal @default(0.00) @map("paid_amount") @db.Decimal(12, 2) // Sum of checkout tenders & payment allocations
+  balanceAmount  Decimal @default(0.00) @map("balance_amount") @db.Decimal(12, 2) // Net outstanding (strictly >= 0)
+  totalCostPrice Decimal @default(0.00) @map("total_cost_price") @db.Decimal(12, 2) // Total COGS snapshot
+  grossProfit    Decimal @default(0.00) @map("gross_profit") @db.Decimal(12, 2) // (netTotal - taxAmount) - totalCostPrice
 
   notes              String?
-  postedAt           DateTime?              @map("posted_at")
-  postedByUserId     String?                @map("posted_by_user_id")
-  cancelledAt        DateTime?              @map("cancelled_at")
-  cancelledByUserId  String?                @map("cancelled_by_user_id")
-  cancellationReason String?                @map("cancellation_reason")
-  createdAt          DateTime               @default(now()) @map("created_at")
-  updatedAt          DateTime               @updatedAt @map("updated_at")
+  postedAt           DateTime? @map("posted_at")
+  postedByUserId     String?   @map("posted_by_user_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancellationReason String?   @map("cancellation_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch             Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouse          Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  customer           Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  postedByUser       User?                  @relation("SalesInvoicePostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
-  cancelledByUser    User?                  @relation("SalesInvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  postedByUser    User?        @relation("SalesInvoicePostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser User?        @relation("SalesInvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
 
   items              SalesInvoiceItem[]
   payments           SalesInvoicePayment[]
@@ -926,33 +1111,33 @@ model SalesInvoice {
 
 /// Sales Invoice Line Item (Exact batch dispensed with authoritative acquisition cost)
 model SalesInvoiceItem {
-  id                 String          @id @default(uuid())
-  salesInvoiceId     String          @map("sales_invoice_id")
-  productId          String          @map("product_id")
-  batchId            String          @map("batch_id")
-  batchNumber        String          @map("batch_number")
-  expiryDate         DateTime        @map("expiry_date")
-  
-  billedQuantity     Int             @map("billed_quantity") // Units billed to customer
-  bonusQuantity      Int             @default(0) @map("bonus_quantity") // Free/bonus units dispensed (0 revenue charge)
-  totalQuantity      Int             @map("total_quantity") // billedQuantity + bonusQuantity (physical units deducted)
-  
-  unitCost           Decimal         @map("unit_cost") @db.Decimal(12, 2) // Batch acquisition cost snapshot (COGS)
-  tradePrice         Decimal         @map("trade_price") @db.Decimal(12, 2) // TP snapshot
-  retailPrice        Decimal         @map("retail_price") @db.Decimal(12, 2) // MRP snapshot
-  unitPrice          Decimal         @map("unit_price") @db.Decimal(12, 2) // Resolved unit price before line discount
-  discountPercentage Decimal         @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
-  discountAmount     Decimal         @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  taxPercentage      Decimal         @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  taxAmount          Decimal         @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
-  lineTotal          Decimal         @map("line_total") @db.Decimal(12, 2) // (billedQuantity * unitPrice) - discount + tax
-  lineCost           Decimal         @map("line_cost") @db.Decimal(12, 2) // totalQuantity * unitCost (COGS)
-  lineProfit         Decimal         @map("line_profit") @db.Decimal(12, 2) // (lineTotal - taxAmount) - lineCost
+  id             String   @id @default(uuid())
+  salesInvoiceId String   @map("sales_invoice_id")
+  productId      String   @map("product_id")
+  batchId        String   @map("batch_id")
+  batchNumber    String   @map("batch_number")
+  expiryDate     DateTime @map("expiry_date")
 
-  salesInvoice       SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
-  product            Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  batch              Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  salesReturnItems   SalesReturnItem[]
+  billedQuantity Int @map("billed_quantity") // Units billed to customer
+  bonusQuantity  Int @default(0) @map("bonus_quantity") // Free/bonus units dispensed (0 revenue charge)
+  totalQuantity  Int @map("total_quantity") // billedQuantity + bonusQuantity (physical units deducted)
+
+  unitCost           Decimal @map("unit_cost") @db.Decimal(12, 2) // Batch acquisition cost snapshot (COGS)
+  tradePrice         Decimal @map("trade_price") @db.Decimal(12, 2) // TP snapshot
+  retailPrice        Decimal @map("retail_price") @db.Decimal(12, 2) // MRP snapshot
+  unitPrice          Decimal @map("unit_price") @db.Decimal(12, 2) // Resolved unit price before line discount
+  discountPercentage Decimal @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxPercentage      Decimal @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  taxAmount          Decimal @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  lineTotal          Decimal @map("line_total") @db.Decimal(12, 2) // (billedQuantity * unitPrice) - discount + tax
+  lineCost           Decimal @map("line_cost") @db.Decimal(12, 2) // totalQuantity * unitCost (COGS)
+  lineProfit         Decimal @map("line_profit") @db.Decimal(12, 2) // (lineTotal - taxAmount) - lineCost
+
+  salesInvoice     SalesInvoice      @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  product          Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch            Batch             @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  salesReturnItems SalesReturnItem[]
 
   @@index([salesInvoiceId])
   @@index([productId, batchId])
@@ -961,15 +1146,15 @@ model SalesInvoiceItem {
 
 /// Point-of-Sale Checkout Tender Record (Invoice settlement breakdown)
 model SalesInvoicePayment {
-  id                 String          @id @default(uuid())
-  salesInvoiceId     String          @map("sales_invoice_id")
-  paymentMethod      PaymentMethod   @map("payment_method")
-  amount             Decimal         @db.Decimal(12, 2)
-  referenceNumber    String?         @map("reference_number") // Cheque #, card slip auth, bank transfer ref
-  notes              String?
-  paidAt             DateTime        @default(now()) @map("paid_at")
+  id              String        @id @default(uuid())
+  salesInvoiceId  String        @map("sales_invoice_id")
+  paymentMethod   PaymentMethod @map("payment_method")
+  amount          Decimal       @db.Decimal(12, 2)
+  referenceNumber String?       @map("reference_number") // Cheque #, card slip auth, bank transfer ref
+  notes           String?
+  paidAt          DateTime      @default(now()) @map("paid_at")
 
-  salesInvoice       SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
 
   @@map("sales_invoice_payments")
 }
@@ -985,39 +1170,39 @@ enum CustomerPaymentStatus {
 
 /// Standalone Customer Payment / Receipt Document
 model CustomerPayment {
-  id                 String                @id @default(uuid())
-  organizationId     String                @map("organization_id")
-  branchId           String                @map("branch_id")
-  customerId         String                @map("customer_id")
-  paymentNumber      String                @map("payment_number") // Sequential (DocumentType.PAYMENT_RECEIPT)
-  paymentDate        DateTime              @default(now()) @map("payment_date")
-  paymentMethod      PaymentMethod         @map("payment_method")
-  amount             Decimal               @db.Decimal(12, 2)
-  allocatedAmount    Decimal               @default(0.00) @map("allocated_amount") @db.Decimal(12, 2)
-  unallocatedAmount  Decimal               @default(0.00) @map("unallocated_amount") @db.Decimal(12, 2)
-  
-  referenceNumber    String?               @map("reference_number")
-  bankName           String?               @map("bank_name")
-  chequeDate         DateTime?             @map("cheque_date")
-  notes              String?
-  status             CustomerPaymentStatus @default(POSTED)
-  
-  postedAt           DateTime              @default(now()) @map("posted_at")
-  postedByUserId     String?               @map("posted_by_user_id")
-  cancelledAt        DateTime?             @map("cancelled_at")
-  cancelledByUserId  String?               @map("cancelled_by_user_id")
-  cancellationReason String?               @map("cancellation_reason")
-  createdAt          DateTime              @default(now()) @map("created_at")
-  updatedAt          DateTime              @updatedAt @map("updated_at")
+  id                String        @id @default(uuid())
+  organizationId    String        @map("organization_id")
+  branchId          String        @map("branch_id")
+  customerId        String        @map("customer_id")
+  paymentNumber     String        @map("payment_number") // Sequential (DocumentType.PAYMENT_RECEIPT)
+  paymentDate       DateTime      @default(now()) @map("payment_date")
+  paymentMethod     PaymentMethod @map("payment_method")
+  amount            Decimal       @db.Decimal(12, 2)
+  allocatedAmount   Decimal       @default(0.00) @map("allocated_amount") @db.Decimal(12, 2)
+  unallocatedAmount Decimal       @default(0.00) @map("unallocated_amount") @db.Decimal(12, 2)
 
-  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch             Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  customer           Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  postedByUser       User?                 @relation("CustomerPaymentPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
-  cancelledByUser    User?                 @relation("CustomerPaymentCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
-  
-  allocations        CustomerPaymentAllocation[]
-  ledgerEntries      CustomerLedgerEntry[]
+  referenceNumber String?               @map("reference_number")
+  bankName        String?               @map("bank_name")
+  chequeDate      DateTime?             @map("cheque_date")
+  notes           String?
+  status          CustomerPaymentStatus @default(POSTED)
+
+  postedAt           DateTime  @default(now()) @map("posted_at")
+  postedByUserId     String?   @map("posted_by_user_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancellationReason String?   @map("cancellation_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  postedByUser    User?        @relation("CustomerPaymentPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser User?        @relation("CustomerPaymentCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+
+  allocations   CustomerPaymentAllocation[]
+  ledgerEntries CustomerLedgerEntry[]
 
   @@unique([organizationId, paymentNumber])
   @@index([organizationId, customerId, paymentDate])
@@ -1026,14 +1211,14 @@ model CustomerPayment {
 
 /// Invoice Allocation breakdown for standalone payments
 model CustomerPaymentAllocation {
-  id                String          @id @default(uuid())
-  customerPaymentId String          @map("customer_payment_id")
-  salesInvoiceId    String          @map("sales_invoice_id")
-  amountAllocated   Decimal         @map("amount_allocated") @db.Decimal(12, 2)
-  createdAt         DateTime        @default(now()) @map("created_at")
+  id                String   @id @default(uuid())
+  customerPaymentId String   @map("customer_payment_id")
+  salesInvoiceId    String   @map("sales_invoice_id")
+  amountAllocated   Decimal  @map("amount_allocated") @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  customerPayment   CustomerPayment @relation(fields: [customerPaymentId], references: [id], onDelete: Cascade)
-  salesInvoice      SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
+  customerPayment CustomerPayment @relation(fields: [customerPaymentId], references: [id], onDelete: Cascade)
+  salesInvoice    SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
 
   @@index([customerPaymentId])
   @@index([salesInvoiceId])
@@ -1060,57 +1245,57 @@ enum ReturnReason {
 }
 
 enum ReturnedStockCondition {
-  SALEABLE          // Restocked into STANDARD warehouse for resale
-  QUARANTINED       // Restocked into QUARANTINE warehouse
+  SALEABLE // Restocked into STANDARD warehouse for resale
+  QUARANTINED // Restocked into QUARANTINE warehouse
 }
 
 enum ReturnRefundMode {
-  CREDIT_ACCOUNT    // Store credit / receivable deduction
-  CASH_REFUND       // Immediate cash payout (bounded by amount actually paid)
-  BANK_TRANSFER     // Immediate bank transfer payout (bounded by amount actually paid)
+  CREDIT_ACCOUNT // Store credit / receivable deduction
+  CASH_REFUND // Immediate cash payout (bounded by amount actually paid)
+  BANK_TRANSFER // Immediate bank transfer payout (bounded by amount actually paid)
 }
 
 /// Sales Return / Credit Note Header
 model SalesReturn {
-  id                 String            @id @default(uuid())
-  organizationId     String            @map("organization_id")
-  branchId           String            @map("branch_id")
-  customerId         String            @map("customer_id")
-  salesInvoiceId     String            @map("sales_invoice_id")
-  returnNumber       String            @map("return_number") // Sequential (DocumentType.SALES_RETURN)
-  returnDate         DateTime          @default(now()) @map("return_date")
-  status             SalesReturnStatus @default(POSTED)
-  reason             ReturnReason      @default(CUSTOMER_RETURN)
-  
-  refundMode         ReturnRefundMode  @default(CREDIT_ACCOUNT) @map("refund_mode")
-  refundAmount       Decimal           @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  branchId       String            @map("branch_id")
+  customerId     String            @map("customer_id")
+  salesInvoiceId String            @map("sales_invoice_id")
+  returnNumber   String            @map("return_number") // Sequential (DocumentType.SALES_RETURN)
+  returnDate     DateTime          @default(now()) @map("return_date")
+  status         SalesReturnStatus @default(POSTED)
+  reason         ReturnReason      @default(CUSTOMER_RETURN)
+
+  refundMode   ReturnRefundMode @default(CREDIT_ACCOUNT) @map("refund_mode")
+  refundAmount Decimal          @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
 
   // Financial Totals
-  subtotal           Decimal           @default(0.00) @map("subtotal") @db.Decimal(12, 2)
-  discountAmount     Decimal           @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  taxAmount          Decimal           @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
-  netTotal           Decimal           @default(0.00) @map("net_total") @db.Decimal(12, 2)
-  totalCostPrice     Decimal           @default(0.00) @map("total_cost_price") @db.Decimal(12, 2) // COGS reversed
-  grossProfit        Decimal           @default(0.00) @map("gross_profit") @db.Decimal(12, 2)
+  subtotal       Decimal @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  discountAmount Decimal @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  netTotal       Decimal @default(0.00) @map("net_total") @db.Decimal(12, 2)
+  totalCostPrice Decimal @default(0.00) @map("total_cost_price") @db.Decimal(12, 2) // COGS reversed
+  grossProfit    Decimal @default(0.00) @map("gross_profit") @db.Decimal(12, 2)
 
   notes              String?
-  postedAt           DateTime          @default(now()) @map("posted_at")
-  postedByUserId     String?           @map("posted_by_user_id")
-  cancelledAt        DateTime?         @map("cancelled_at")
-  cancelledByUserId  String?           @map("cancelled_by_user_id")
-  cancellationReason String?           @map("cancellation_reason")
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @updatedAt @map("updated_at")
+  postedAt           DateTime  @default(now()) @map("posted_at")
+  postedByUserId     String?   @map("posted_by_user_id")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancellationReason String?   @map("cancellation_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch             Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  customer           Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  salesInvoice       SalesInvoice      @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
-  postedByUser       User?             @relation("SalesReturnPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
-  cancelledByUser    User?             @relation("SalesReturnCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesInvoice    SalesInvoice @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
+  postedByUser    User?        @relation("SalesReturnPostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser User?        @relation("SalesReturnCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
 
-  items              SalesReturnItem[]
-  ledgerEntries      CustomerLedgerEntry[]
+  items         SalesReturnItem[]
+  ledgerEntries CustomerLedgerEntry[]
 
   @@unique([organizationId, returnNumber])
   @@index([organizationId, branchId, returnDate])
@@ -1121,38 +1306,37 @@ model SalesReturn {
 
 /// Sales Return Line Item (Discrete batch restored to exact warehouse location)
 model SalesReturnItem {
-  id                     String                 @id @default(uuid())
-  salesReturnId          String                 @map("sales_return_id")
-  salesInvoiceItemId     String                 @map("sales_invoice_item_id")
-  productId              String                 @map("product_id")
-  batchId                String                 @map("batch_id")
-  batchNumber            String                 @map("batch_number")
-  expiryDate             DateTime               @map("expiry_date")
-  destinationWarehouseId String                 @map("destination_warehouse_id")
-  
-  returnedQuantity       Int                    @map("returned_quantity")
-  bonusReturnedQuantity  Int                    @default(0) @map("bonus_returned_quantity")
-  totalReturnedQuantity  Int                    @map("total_returned_quantity")
-  
-  stockCondition         ReturnedStockCondition @default(SALEABLE) @map("stock_condition")
-  unitCost               Decimal                @map("unit_cost") @db.Decimal(12, 2)
-  unitPrice              Decimal                @map("unit_price") @db.Decimal(12, 2)
-  discountPercentage     Decimal                @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
-  discountAmount         Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  taxPercentage          Decimal                @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
-  taxAmount              Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
-  lineTotal              Decimal                @map("line_total") @db.Decimal(12, 2)
-  lineCost               Decimal                @map("line_cost") @db.Decimal(12, 2)
-  lineProfit             Decimal                @map("line_profit") @db.Decimal(12, 2)
+  id                     String   @id @default(uuid())
+  salesReturnId          String   @map("sales_return_id")
+  salesInvoiceItemId     String   @map("sales_invoice_item_id")
+  productId              String   @map("product_id")
+  batchId                String   @map("batch_id")
+  batchNumber            String   @map("batch_number")
+  expiryDate             DateTime @map("expiry_date")
+  destinationWarehouseId String   @map("destination_warehouse_id")
 
-  salesReturn            SalesReturn            @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
-  salesInvoiceItem       SalesInvoiceItem       @relation(fields: [salesInvoiceItemId], references: [id], onDelete: Restrict)
-  product                Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
-  batch                  Batch                  @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  destinationWarehouse   Warehouse              @relation(fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  returnedQuantity      Int @map("returned_quantity")
+  bonusReturnedQuantity Int @default(0) @map("bonus_returned_quantity")
+  totalReturnedQuantity Int @map("total_returned_quantity")
+
+  stockCondition     ReturnedStockCondition @default(SALEABLE) @map("stock_condition")
+  unitCost           Decimal                @map("unit_cost") @db.Decimal(12, 2)
+  unitPrice          Decimal                @map("unit_price") @db.Decimal(12, 2)
+  discountPercentage Decimal                @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxPercentage      Decimal                @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  taxAmount          Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  lineTotal          Decimal                @map("line_total") @db.Decimal(12, 2)
+  lineCost           Decimal                @map("line_cost") @db.Decimal(12, 2)
+  lineProfit         Decimal                @map("line_profit") @db.Decimal(12, 2)
+
+  salesReturn          SalesReturn      @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  salesInvoiceItem     SalesInvoiceItem @relation(fields: [salesInvoiceItemId], references: [id], onDelete: Restrict)
+  product              Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch                Batch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  destinationWarehouse Warehouse        @relation(fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
 
   @@index([salesReturnId])
   @@index([salesInvoiceItemId])
   @@map("sales_return_items")
 }
-
