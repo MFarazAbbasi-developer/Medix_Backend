@@ -304,13 +304,37 @@ export class AuthSeedService implements OnApplicationBootstrap {
             branchId: b.id,
             name: 'Main Warehouse',
             code: 'WH-MAIN',
+            warehouseType: 'STANDARD',
             isDefault: true,
             isActive: true,
           },
         });
       }
+
+      const existingQuarantine = await this.prisma.warehouse.findUnique({
+        where: {
+          branchId_code: {
+            branchId: b.id,
+            code: 'WH-QUAR',
+          },
+        },
+      });
+
+      if (!existingQuarantine) {
+        await this.prisma.warehouse.create({
+          data: {
+            organizationId: org.id,
+            branchId: b.id,
+            name: 'Quarantine Warehouse',
+            code: 'WH-QUAR',
+            warehouseType: 'QUARANTINE',
+            isDefault: false,
+            isActive: true,
+          },
+        });
+      }
     }
-    this.logger.log('Default branch warehouses verified');
+    this.logger.log('Default branch warehouses (Standard & Quarantine) verified');
 
     // 8. Seed default Walk-in Cash Customer (if missing)
     const existingWalkIn = await this.prisma.customer.findUnique({

@@ -171,14 +171,36 @@ export const INITIAL_PERMISSIONS = [
     description: 'Create and edit warehouse and storage locations',
   },
 
-  // Payments & Cash Flow (Foundational permissions for future module)
+  // Payments & Cash Flow
   {
     code: 'payments.view',
-    description: 'View customer and supplier payment records',
+    description: 'View customer and supplier payment records and vouchers',
+  },
+  {
+    code: 'payments.create',
+    description: 'Create and post customer payment receipts and invoice settlements',
+  },
+  {
+    code: 'payments.cancel',
+    description: 'Cancel or void customer payment receipts with settlement restoration',
   },
   {
     code: 'payments.receive',
     description: 'Receive customer payments and record collections',
+  },
+
+  // Sales Returns
+  {
+    code: 'returns.view',
+    description: 'View customer sales returns and credit notes',
+  },
+  {
+    code: 'returns.create',
+    description: 'Create and post customer sales returns and issue credit notes/refunds',
+  },
+  {
+    code: 'returns.cancel',
+    description: 'Cancel customer sales returns with stock and settlement reversal',
   },
 
   // Reporting & Audit
