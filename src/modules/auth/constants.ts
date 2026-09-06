@@ -99,14 +99,28 @@ export const INITIAL_PERMISSIONS = [
     description: 'Edit draft purchase orders and receiving entries',
   },
 
-  // Inventory Management (Foundational permissions for future module)
+  // Inventory Management
   {
     code: 'inventory.view',
-    description: 'View inventory stock levels and batches',
+    description: 'View inventory stock levels and batch balances',
+  },
+  {
+    code: 'inventory.ledger_view',
+    description: 'View chronological stock movement ledger and history',
   },
   {
     code: 'inventory.adjust',
-    description: 'Perform inventory stock adjustments and corrections',
+    description: 'Create and post inventory stock adjustments and corrections',
+  },
+
+  // Warehouses & Storage Locations
+  {
+    code: 'warehouses.view',
+    description: 'View warehouse and storage locations',
+  },
+  {
+    code: 'warehouses.manage',
+    description: 'Create and edit warehouse and storage locations',
   },
 
   // Payments & Cash Flow (Foundational permissions for future module)

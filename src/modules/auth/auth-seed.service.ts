@@ -168,6 +168,13 @@ export class AuthSeedService implements OnApplicationBootstrap {
         group: 'GENERAL',
         description: 'Default active branch for new transactions',
       },
+      {
+        key: 'allowNegativeStock',
+        value: 'false',
+        dataType: 'BOOLEAN' as const,
+        group: 'INVENTORY',
+        description: 'Enforce strict non-negative inventory balance policy',
+      },
     ];
 
     for (const s of defaultSettings) {
@@ -231,6 +238,36 @@ export class AuthSeedService implements OnApplicationBootstrap {
       }
     }
     this.logger.log('Standard units of measurement verified');
+
+    // 6. Seed default Warehouse per Branch (if missing)
+    const branches = await this.prisma.branch.findMany({
+      where: { organizationId: org.id },
+    });
+
+    for (const b of branches) {
+      const existingWarehouse = await this.prisma.warehouse.findUnique({
+        where: {
+          branchId_code: {
+            branchId: b.id,
+            code: 'WH-MAIN',
+          },
+        },
+      });
+
+      if (!existingWarehouse) {
+        await this.prisma.warehouse.create({
+          data: {
+            organizationId: org.id,
+            branchId: b.id,
+            name: 'Main Warehouse',
+            code: 'WH-MAIN',
+            isDefault: true,
+            isActive: true,
+          },
+        });
+      }
+    }
+    this.logger.log('Default branch warehouses verified');
   }
 
   /**
