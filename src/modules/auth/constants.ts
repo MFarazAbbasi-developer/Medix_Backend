@@ -67,14 +67,32 @@ export const INITIAL_PERMISSIONS = [
     description: 'Update batch pricing, status, and remarks',
   },
 
-  // Sales & Distribution (Foundational permissions for future module)
+  // Customers & Clients
+  {
+    code: 'customers.view',
+    description: 'View customer profiles and directory',
+  },
+  {
+    code: 'customers.create',
+    description: 'Create new customer master records',
+  },
+  {
+    code: 'customers.edit',
+    description: 'Edit customer specifications, licenses, and credit terms',
+  },
+  {
+    code: 'customers.ledger_view',
+    description: 'View customer sub-ledger statements and receivable balances',
+  },
+
+  // Sales & Dispensing
   {
     code: 'sales.view',
     description: 'View sales orders and invoices',
   },
   {
     code: 'sales.create',
-    description: 'Create new sales orders and invoices',
+    description: 'Create and post new sales invoices',
   },
   {
     code: 'sales.edit',
@@ -82,7 +100,11 @@ export const INITIAL_PERMISSIONS = [
   },
   {
     code: 'sales.cancel',
-    description: 'Cancel or void sales transactions',
+    description: 'Cancel or void posted sales invoices with stock and ledger reversal',
+  },
+  {
+    code: 'sales.view_cost_margin',
+    description: 'View COGS cost price and gross profit margin on invoices',
   },
 
   // Suppliers & Vendors

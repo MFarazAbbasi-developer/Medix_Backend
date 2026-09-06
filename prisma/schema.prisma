@@ -46,6 +46,9 @@ model User {
   postedAdjustments     StockAdjustment[]
   postedGrns            GoodsReceiveNote[]
   supplierLedgerEntries SupplierLedgerEntry[]
+  postedSalesInvoices   SalesInvoice[]        @relation("SalesInvoicePostedBy")
+  cancelledSalesInvoices SalesInvoice[]       @relation("SalesInvoiceCancelledBy")
+  customerLedgerEntries CustomerLedgerEntry[]
 
   @@map("users")
 }
@@ -167,6 +170,10 @@ model Organization {
   purchaseOrders        PurchaseOrder[]
   goodsReceiveNotes     GoodsReceiveNote[]
   supplierLedgerEntries SupplierLedgerEntry[]
+  customers             Customer[]
+  customerPricingRules  CustomerPricingRule[]
+  customerLedgerEntries CustomerLedgerEntry[]
+  salesInvoices         SalesInvoice[]
 
   @@map("organizations")
 }
@@ -194,6 +201,8 @@ model Branch {
   purchaseOrders        PurchaseOrder[]
   goodsReceiveNotes     GoodsReceiveNote[]
   supplierLedgerEntries SupplierLedgerEntry[]
+  customerLedgerEntries CustomerLedgerEntry[]
+  salesInvoices         SalesInvoice[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -349,6 +358,8 @@ model Product {
   stockAdjustmentItems  StockAdjustmentItem[]
   purchaseOrderItems    PurchaseOrderItem[]
   goodsReceiveNoteItems GoodsReceiveNoteItem[]
+  salesInvoiceItems     SalesInvoiceItem[]
+  customerPricingRules  CustomerPricingRule[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -376,6 +387,7 @@ model Batch {
   stockMovements        StockMovement[]
   stockAdjustmentItems  StockAdjustmentItem[]
   goodsReceiveNoteItems GoodsReceiveNoteItem[]
+  salesInvoiceItems     SalesInvoiceItem[]
 
   @@unique([productId, batchNumber])
   @@index([productId, expiryDate])
@@ -401,6 +413,7 @@ model Warehouse {
   stockMovements    StockMovement[]
   stockAdjustments  StockAdjustment[]
   goodsReceiveNotes GoodsReceiveNote[]
+  salesInvoices     SalesInvoice[]
 
   @@unique([branchId, code])
   @@map("warehouses")
@@ -710,3 +723,225 @@ model SupplierLedgerEntry {
   @@index([grnId])
   @@map("supplier_ledger_entries")
 }
+
+// ==========================================
+// CUSTOMER & SUB-LEDGER MODELS
+// ==========================================
+
+enum CustomerType {
+  RETAIL_PHARMACY       // B2B Retail Pharmacy
+  HOSPITAL              // B2B Hospital / Clinic
+  DISTRIBUTOR           // B2B Sub-distributor
+  WALK_IN               // B2C Walk-in Cash Customer
+  INSTITUTIONAL         // Government / NGO / Corporate
+}
+
+/// Customer Master Data model
+model Customer {
+  id                        String                @id @default(uuid())
+  organizationId            String                @map("organization_id")
+  code                      String                // Unique per organization (e.g. "CUST-00101")
+  name                      String                // Commercial name (e.g. "Al-Shifa Pharmacy")
+  customerType              CustomerType          @default(RETAIL_PHARMACY) @map("customer_type")
+  contactPerson             String?               @map("contact_person")
+  phone                     String?
+  email                     String?
+  address                   String?
+  city                      String?
+  ntn                       String?               // National Tax Number
+  strn                      String?               // Sales Tax Registration Number
+  drugSaleLicenseNo         String?               @map("drug_sale_license_no") // Regulatory compliance
+  creditDays                Int                   @default(0) @map("credit_days") // 0 = Strict Cash
+  creditLimit               Decimal               @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance            Decimal               @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached total receivable balance
+  defaultDiscountPercentage Decimal               @default(0.00) @map("default_discount_percentage") @db.Decimal(5, 2)
+  isTaxExempt               Boolean               @default(false) @map("is_tax_exempt")
+  isActive                  Boolean               @default(true) @map("is_active")
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
+
+  organization              Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  salesInvoices             SalesInvoice[]
+  ledgerEntries             CustomerLedgerEntry[]
+  pricingRules              CustomerPricingRule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, name])
+  @@index([organizationId, phone])
+  @@map("customers")
+}
+
+/// Customer-Specific Pricing Overrides (contracted rates or custom discounts)
+model CustomerPricingRule {
+  id                 String       @id @default(uuid())
+  organizationId     String       @map("organization_id")
+  customerId         String       @map("customer_id")
+  productId          String       @map("product_id")
+  customPrice        Decimal?     @map("custom_price") @db.Decimal(12, 2) // Fixed contracted unit price
+  discountPercentage Decimal?     @map("discount_percentage") @db.Decimal(5, 2) // Contracted discount %
+  isActive           Boolean      @default(true) @map("is_active")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer           Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product            Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId])
+  @@map("customer_pricing_rules")
+}
+
+enum CustomerLedgerEntryType {
+  OPENING_BALANCE       // Initial receivable balance setup
+  SALES_INVOICE         // Invoice issued / receivable addition (Debit)
+  PAYMENT               // Customer payment at checkout (Credit)
+  CREDIT_NOTE           // Sales invoice cancellation / reversal (Credit)
+  REFUND                // Cash/tender refund upon cancellation (Debit)
+  ADJUSTMENT            // Balance correction
+}
+
+/// Immutable Customer Financial Sub-Ledger Entry
+model CustomerLedgerEntry {
+  id                 String                  @id @default(uuid())
+  organizationId     String                  @map("organization_id")
+  branchId           String                  @map("branch_id")
+  customerId         String                  @map("customer_id")
+  salesInvoiceId     String?                 @map("sales_invoice_id")
+  entryType          CustomerLedgerEntryType @map("entry_type")
+  referenceNumber    String                  @map("reference_number") // e.g. "INV-00102", "REC-00045"
+  debit              Decimal                 @default(0.00) @db.Decimal(12, 2) // Increases receivable
+  credit             Decimal                 @default(0.00) @db.Decimal(12, 2) // Decreases receivable
+  runningBalance     Decimal                 @map("running_balance") @db.Decimal(12, 2)
+  transactionDate    DateTime                @default(now()) @map("transaction_date")
+  notes              String?
+  createdByUserId    String?                 @map("created_by_user_id")
+  createdAt          DateTime                @default(now()) @map("created_at")
+
+  organization       Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer           Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesInvoice       SalesInvoice?           @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  createdByUser      User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, customerId, transactionDate])
+  @@index([salesInvoiceId])
+  @@map("customer_ledger_entries")
+}
+
+// ==========================================
+// SALES INVOICE & DISPENSING MODELS
+// ==========================================
+
+enum SalesInvoiceStatus {
+  DRAFT                 // Unposted quotation / parked bill (no stock deducted, no number consumed)
+  POSTED                // Immutable finalized sale (stock deducted, invoice number assigned, ledger updated)
+  CANCELLED             // Formally voided/cancelled (stock restored, ledger reversed)
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CREDIT_CARD
+  CHEQUE
+  ONLINE
+  CREDIT_ACCOUNT        // Billed to customer credit account
+}
+
+/// Sales Invoice Header
+model SalesInvoice {
+  id                 String                 @id @default(uuid())
+  organizationId     String                 @map("organization_id")
+  branchId           String                 @map("branch_id")
+  warehouseId        String                 @map("warehouse_id")
+  customerId         String                 @map("customer_id")
+  invoiceNumber      String?                @map("invoice_number") // Null in DRAFT, generated on POSTED via NumberingService
+  draftNumber        String?                @map("draft_number")   // Temporary identifier for parked drafts (e.g. "DFT-00102")
+  invoiceDate        DateTime               @default(now()) @map("invoice_date")
+  status             SalesInvoiceStatus     @default(DRAFT)
+  paymentMethod      PaymentMethod          @default(CASH) @map("payment_method")
+  
+  // Financial Totals
+  subtotal           Decimal                @default(0.00) @map("subtotal") @db.Decimal(12, 2) // Sum of gross lines
+  discountAmount     Decimal                @default(0.00) @map("discount_amount") @db.Decimal(12, 2) // Total line & invoice discount
+  taxAmount          Decimal                @default(0.00) @map("tax_amount") @db.Decimal(12, 2) // Total GST/Sales tax
+  netTotal           Decimal                @default(0.00) @map("net_total") @db.Decimal(12, 2) // Total amount payable
+  paidAmount         Decimal                @default(0.00) @map("paid_amount") @db.Decimal(12, 2) // Sum of checkout tenders
+  balanceAmount      Decimal                @default(0.00) @map("balance_amount") @db.Decimal(12, 2) // netTotal - paidAmount (Debit on credit account)
+  totalCostPrice     Decimal                @default(0.00) @map("total_cost_price") @db.Decimal(12, 2) // Total COGS snapshot
+  grossProfit        Decimal                @default(0.00) @map("gross_profit") @db.Decimal(12, 2) // (netTotal - taxAmount) - totalCostPrice
+
+  notes              String?
+  postedAt           DateTime?              @map("posted_at")
+  postedByUserId     String?                @map("posted_by_user_id")
+  cancelledAt        DateTime?              @map("cancelled_at")
+  cancelledByUserId  String?                @map("cancelled_by_user_id")
+  cancellationReason String?                @map("cancellation_reason")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  customer           Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  postedByUser       User?                  @relation("SalesInvoicePostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser    User?                  @relation("SalesInvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+
+  items              SalesInvoiceItem[]
+  payments           SalesInvoicePayment[]
+  ledgerEntries      CustomerLedgerEntry[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, branchId, invoiceDate])
+  @@index([customerId, status])
+  @@map("sales_invoices")
+}
+
+/// Sales Invoice Line Item (Exact batch dispensed with authoritative acquisition cost)
+model SalesInvoiceItem {
+  id                 String          @id @default(uuid())
+  salesInvoiceId     String          @map("sales_invoice_id")
+  productId          String          @map("product_id")
+  batchId            String          @map("batch_id")
+  batchNumber        String          @map("batch_number")
+  expiryDate         DateTime        @map("expiry_date")
+  
+  billedQuantity     Int             @map("billed_quantity") // Units billed to customer
+  bonusQuantity      Int             @default(0) @map("bonus_quantity") // Free/bonus units dispensed (0 revenue charge)
+  totalQuantity      Int             @map("total_quantity") // billedQuantity + bonusQuantity (physical units deducted)
+  
+  unitCost           Decimal         @map("unit_cost") @db.Decimal(12, 2) // Batch acquisition cost snapshot (COGS)
+  tradePrice         Decimal         @map("trade_price") @db.Decimal(12, 2) // TP snapshot
+  retailPrice        Decimal         @map("retail_price") @db.Decimal(12, 2) // MRP snapshot
+  unitPrice          Decimal         @map("unit_price") @db.Decimal(12, 2) // Resolved unit price before line discount
+  discountPercentage Decimal         @default(0.00) @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal         @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxPercentage      Decimal         @default(0.00) @map("tax_percentage") @db.Decimal(5, 2)
+  taxAmount          Decimal         @default(0.00) @map("tax_amount") @db.Decimal(12, 2)
+  lineTotal          Decimal         @map("line_total") @db.Decimal(12, 2) // (billedQuantity * unitPrice) - discount + tax
+  lineCost           Decimal         @map("line_cost") @db.Decimal(12, 2) // totalQuantity * unitCost (COGS)
+  lineProfit         Decimal         @map("line_profit") @db.Decimal(12, 2) // (lineTotal - taxAmount) - lineCost
+
+  salesInvoice       SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  product            Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch              Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@index([salesInvoiceId])
+  @@index([productId, batchId])
+  @@map("sales_invoice_items")
+}
+
+/// Point-of-Sale Checkout Tender Record (Invoice settlement breakdown)
+model SalesInvoicePayment {
+  id                 String          @id @default(uuid())
+  salesInvoiceId     String          @map("sales_invoice_id")
+  paymentMethod      PaymentMethod   @map("payment_method")
+  amount             Decimal         @db.Decimal(12, 2)
+  referenceNumber    String?         @map("reference_number") // Cheque #, card slip auth, bank transfer ref
+  notes              String?
+  paidAt             DateTime        @default(now()) @map("paid_at")
+
+  salesInvoice       SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+
+  @@map("sales_invoice_payments")
+}
+

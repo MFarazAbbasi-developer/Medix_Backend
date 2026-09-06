@@ -176,6 +176,13 @@ export class AuthSeedService implements OnApplicationBootstrap {
         group: 'INVENTORY',
         description: 'Enforce strict non-negative inventory balance policy',
       },
+      {
+        key: 'DEFAULT_SALES_PRICING_BASE',
+        value: 'TP',
+        dataType: 'STRING' as const,
+        group: 'SALES',
+        description: 'Default pricing base for sales lines (TP = Regulated Trade Price, MRP = Max Retail Price)',
+      },
     ];
 
     for (const s of defaultSettings) {
@@ -238,9 +245,44 @@ export class AuthSeedService implements OnApplicationBootstrap {
         });
       }
     }
-    this.logger.log('Standard units of measurement verified');
+    this.logger.log('Default units of measurement verified');
 
-    // 6. Seed default Warehouse per Branch (if missing)
+    // 6. Seed default Product Categories (if missing)
+    const defaultCategories = [
+      { name: 'Antibiotics', code: 'CAT-ANTI' },
+      { name: 'Analgesics & Antipyretics', code: 'CAT-ANAL' },
+      { name: 'Cardiovascular', code: 'CAT-CARD' },
+      { name: 'Gastrointestinal', code: 'CAT-GAST' },
+      { name: 'Respiratory & Anti-Allergic', code: 'CAT-RESP' },
+      { name: 'Dermatological', code: 'CAT-DERM' },
+      { name: 'Nutritional & Vitamins', code: 'CAT-VIT' },
+      { name: 'Medical Devices & Surgical', code: 'CAT-SURG' },
+    ];
+
+    for (const c of defaultCategories) {
+      const existing = await this.prisma.productCategory.findUnique({
+        where: {
+          organizationId_name: {
+            organizationId: org.id,
+            name: c.name,
+          },
+        },
+      });
+
+      if (!existing) {
+        await this.prisma.productCategory.create({
+          data: {
+            organizationId: org.id,
+            name: c.name,
+            code: c.code,
+            isActive: true,
+          },
+        });
+      }
+    }
+    this.logger.log('Default product categories verified');
+
+    // 7. Seed default Warehouse per Branch (if missing)
     const branches = await this.prisma.branch.findMany({
       where: { organizationId: org.id },
     });
@@ -269,6 +311,33 @@ export class AuthSeedService implements OnApplicationBootstrap {
       }
     }
     this.logger.log('Default branch warehouses verified');
+
+    // 8. Seed default Walk-in Cash Customer (if missing)
+    const existingWalkIn = await this.prisma.customer.findUnique({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'CUST-WALKIN',
+        },
+      },
+    });
+
+    if (!existingWalkIn) {
+      await this.prisma.customer.create({
+        data: {
+          organizationId: org.id,
+          code: 'CUST-WALKIN',
+          name: 'Walk-in Customer',
+          customerType: 'WALK_IN',
+          creditDays: 0,
+          creditLimit: 0,
+          currentBalance: 0,
+          defaultDiscountPercentage: 0,
+          isActive: true,
+        },
+      });
+      this.logger.log('Default Walk-in Customer created: "Walk-in Customer" (CUST-WALKIN)');
+    }
   }
 
   /**
