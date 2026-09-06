@@ -105,7 +105,7 @@ describe('PurchaseReturnService', () => {
     returnNumber: 'PRET-00001',
     returnDate: new Date(),
     status: PurchaseReturnStatus.POSTED,
-    reason: PurchaseReturnReason.DAMAGED_IN_TRANSIT,
+    reason: PurchaseReturnReason.DAMAGED_GOODS,
     subtotal: new Decimal('1000.00'),
     discountAmount: new Decimal('100.00'),
     taxAmount: new Decimal('45.00'),
@@ -261,7 +261,7 @@ describe('PurchaseReturnService', () => {
     it('creates a posted purchase return, stock deduction, and supplier ledger debit note successfully', async () => {
       const result = await service.createPurchaseReturn({
         grnId: 'grn-1',
-        reason: PurchaseReturnReason.DAMAGED_IN_TRANSIT,
+        reason: PurchaseReturnReason.DAMAGED_GOODS,
         items: [
           {
             grnItemId: 'grn-item-1',
@@ -317,7 +317,7 @@ describe('PurchaseReturnService', () => {
       await expect(
         service.createPurchaseReturn({
           grnId: 'grn-1',
-          reason: PurchaseReturnReason.SHORT_EXPIRY,
+          reason: PurchaseReturnReason.NEAR_EXPIRY_RECALL,
           items: [
             {
               grnItemId: 'grn-item-1',
@@ -337,7 +337,7 @@ describe('PurchaseReturnService', () => {
       await expect(
         service.createPurchaseReturn({
           grnId: 'grn-1',
-          reason: PurchaseReturnReason.DEFECTIVE,
+          reason: PurchaseReturnReason.DEFECTIVE_BATCH,
           items: [
             {
               grnItemId: 'grn-item-1',
@@ -355,7 +355,7 @@ describe('PurchaseReturnService', () => {
       await expect(
         service.createPurchaseReturn({
           grnId: 'grn-1',
-          reason: PurchaseReturnReason.DAMAGED_IN_TRANSIT,
+          reason: PurchaseReturnReason.DAMAGED_GOODS,
           items: [
             {
               grnItemId: 'grn-item-1',
@@ -373,7 +373,7 @@ describe('PurchaseReturnService', () => {
       await expect(
         service.createPurchaseReturn({
           grnId: 'grn-1',
-          reason: PurchaseReturnReason.RECALLED_BATCH,
+          reason: PurchaseReturnReason.REGULATORY_RECALL,
           items: [
             {
               grnItemId: 'grn-item-1',

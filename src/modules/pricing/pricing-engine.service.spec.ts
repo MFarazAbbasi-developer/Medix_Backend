@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { PricingEngineService } from './pricing-engine.service';
 import { CustomerType, SchemeType } from '@prisma/client';

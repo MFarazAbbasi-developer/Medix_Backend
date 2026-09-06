@@ -247,6 +247,36 @@ export const INITIAL_PERMISSIONS = [
     description: 'Cancel stock transfers with automated stock reversal',
   },
 
+  // Expiry Management
+  {
+    code: 'expiry.view',
+    description: 'View expiry metrics, aging thresholds, and expired stock reports',
+  },
+  {
+    code: 'expiry.manage',
+    description: 'Configure expiry thresholds and manage near-expiry stock',
+  },
+
+  // Quarantine Operations
+  {
+    code: 'quarantine.view',
+    description: 'View quarantined stock and quarantine warehouse inventory',
+  },
+  {
+    code: 'quarantine.manage',
+    description: 'Quarantine inventory and release approved stock back to standard inventory',
+  },
+
+  // Product Recalls
+  {
+    code: 'recalls.view',
+    description: 'View product recalls, affected batches, and impacted warehouses',
+  },
+  {
+    code: 'recalls.manage',
+    description: 'Initiate, update, quarantine, and cancel product recalls',
+  },
+
   // Reporting & Audit
   {
     code: 'reports.view',
