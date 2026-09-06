@@ -49,35 +49,50 @@ export class FefoService {
 
     const now = new Date();
 
-    // 1. Fetch active, non-expired batches for the product with positive movement balances
-    const candidateBatches = await this.prisma.batch.findMany({
-      where: {
-        productId,
-        product: { organizationId },
-        status: 'ACTIVE',
-        expiryDate: { gt: now },
-      },
-      orderBy: [{ expiryDate: 'asc' }, { createdAt: 'asc' }],
-      select: {
-        id: true,
-        batchNumber: true,
-        mfgDate: true,
-        expiryDate: true,
-        purchaseCost: true,
-        tradePrice: true,
-        retailPrice: true,
-        stockMovements: {
-          where: {
-            organizationId,
-            branchId,
-            warehouseId,
-          },
-          select: {
-            quantity: true,
+    const [warehouse, candidateBatches] = await Promise.all([
+      this.prisma.warehouse.findFirst({
+        where: { id: warehouseId, organizationId, branchId },
+      }),
+      this.prisma.batch.findMany({
+        where: {
+          productId,
+          product: { organizationId },
+          status: 'ACTIVE',
+          expiryDate: { gt: now },
+        },
+        orderBy: [{ expiryDate: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          batchNumber: true,
+          mfgDate: true,
+          expiryDate: true,
+          purchaseCost: true,
+          tradePrice: true,
+          retailPrice: true,
+          stockMovements: {
+            where: {
+              organizationId,
+              branchId,
+              warehouseId,
+              warehouse: {
+                warehouseType: 'STANDARD',
+              },
+            },
+            select: {
+              quantity: true,
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
+
+    if (!warehouse) {
+      throw new BadRequestException(`Warehouse with ID "${warehouseId}" not found`);
+    }
+
+    if (warehouse.warehouseType === 'QUARANTINE') {
+      throw new BadRequestException('Cannot allocate saleable stock from a Quarantine Warehouse');
+    }
 
     let remainingNeeded = requestedQuantity;
     let totalAllocated = 0;

@@ -420,7 +420,7 @@ export class InventoryService {
               where: warehouseId ? { warehouseId } : undefined,
               include: {
                 warehouse: {
-                  select: { id: true, name: true, code: true },
+                  select: { id: true, name: true, code: true, warehouseType: true },
                 },
               },
             },
@@ -450,8 +450,15 @@ export class InventoryService {
       }
 
       const totalQuantity = batch.stockMovements.reduce((sum, m) => sum + m.quantity, 0);
+      const saleableQuantity = batch.stockMovements
+        .filter((m) => m.warehouse?.warehouseType === 'STANDARD')
+        .reduce((sum, m) => sum + m.quantity, 0);
+      const quarantineQuantity = batch.stockMovements
+        .filter((m) => m.warehouse?.warehouseType === 'QUARANTINE')
+        .reduce((sum, m) => sum + m.quantity, 0);
+
       const isExpired = new Date(batch.expiryDate) <= now;
-      const isSaleable = batch.status === 'ACTIVE' && !isExpired && totalQuantity > 0;
+      const isSaleable = batch.status === 'ACTIVE' && !isExpired && saleableQuantity > 0;
 
       return {
         id: batch.id,
@@ -464,6 +471,8 @@ export class InventoryService {
         retailPrice: Number(batch.retailPrice),
         remarks: batch.remarks,
         totalQuantity,
+        saleableQuantity,
+        quarantineQuantity,
         isExpired,
         isSaleable,
         warehouses: Object.values(warehouseMap),

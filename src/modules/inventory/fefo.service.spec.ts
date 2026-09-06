@@ -10,6 +10,13 @@ describe('FefoService', () => {
 
   beforeEach(() => {
     prisma = {
+      warehouse: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'wh-1',
+          name: 'Main Warehouse',
+          warehouseType: 'STANDARD',
+        }),
+      },
       batch: {
         findMany: vi.fn(),
       },
