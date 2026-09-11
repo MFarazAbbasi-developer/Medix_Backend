@@ -125,6 +125,9 @@ describe('DeliveryOrdersService', () => {
       },
       deliveryFulfillment: {
         count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn(),
+        findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
           id: 'ful-1',
           ...data,
@@ -142,10 +145,19 @@ describe('DeliveryOrdersService', () => {
     };
 
     numberingService = {
-      generateNextNumber: vi.fn().mockResolvedValue({
-        documentNumber: 'DO-00001',
-        seriesId: 'series-1',
-        sequence: 1,
+      generateNextNumber: vi.fn().mockImplementation((docType) => {
+        if (docType === 'DELIVERY_CHALLAN') {
+          return Promise.resolve({
+            documentNumber: 'DC-00001',
+            seriesId: 'series-dc',
+            sequence: 1,
+          });
+        }
+        return Promise.resolve({
+          documentNumber: 'DO-00001',
+          seriesId: 'series-do',
+          sequence: 1,
+        });
       }),
     };
 
@@ -553,4 +565,223 @@ describe('DeliveryOrdersService', () => {
       );
     });
   });
+
+  describe('Phase 20D — Delivery Challan & Printing', () => {
+    const mockDoForPrint = {
+      id: 'do-1',
+      organizationId: 'org-1',
+      branchId: 'branch-1',
+      warehouseId: 'wh-1',
+      doNumber: 'DO-00001',
+      invoiceNumber: 'INV-00010',
+      invoiceDate: new Date('2026-09-12'),
+      status: 'PARTIALLY_DELIVERED',
+      customerName: 'Al-Shifa Pharmacy',
+      customerCode: 'CUST-001',
+      deliveryTitle: 'Main Pharmacy Clifton',
+      deliveryRecipient: 'Dr. Tariq',
+      deliveryPhone: '03001234567',
+      deliveryAddress: 'Shop 12, Block 5, Clifton',
+      deliveryCity: 'Karachi',
+      deliveryInstructions: 'Deliver before 5 PM',
+      salesmanName: 'Ahmed Khan',
+      salesmanCode: 'SM-001',
+      routeName: 'Saddar Route',
+      routeCode: 'RT-001',
+      branch: {
+        id: 'branch-1',
+        name: 'Clifton Branch',
+        code: 'BR-CLF',
+        address: 'Main Clifton Rd',
+        city: 'Karachi',
+        phone: '021-3580000',
+      },
+      warehouse: {
+        id: 'wh-1',
+        name: 'Main Warehouse',
+        code: 'WH-MAIN',
+      },
+    };
+
+    const mockFulfillmentForPrint = {
+      id: 'ful-1',
+      organizationId: 'org-1',
+      deliveryOrderId: 'do-1',
+      fulfillmentNumber: 1,
+      challanNumber: 'DC-00001',
+      fulfilledAt: new Date('2026-09-12T10:30:00Z'),
+      notes: 'Dispatched via Van 3, Driver Kamran',
+      fulfilledByUser: {
+        id: 'user-1',
+        displayName: 'Dr. Tariq Mahmood',
+        username: 'pharmacist',
+      },
+      items: [
+        {
+          id: 'ful-item-1',
+          fulfillmentId: 'ful-1',
+          deliveryOrderItemId: 'do-item-1',
+          deliveredBilledQuantity: 60,
+          deliveredBonusQuantity: 5,
+          deliveryOrderItem: {
+            id: 'do-item-1',
+            productName: 'Panadol Extra 500mg',
+            productSku: 'SKU-PAN-500',
+            genericName: 'Paracetamol',
+            packSize: '10x10',
+            unitOfMeasurement: 'Tab',
+            batchNumber: 'BN-101',
+            expiryDate: new Date('2027-12-31'),
+            orderedBilledQuantity: 100,
+            orderedBonusQuantity: 10,
+          },
+        },
+      ],
+    };
+
+    it('generates sequential DC-xxxxx challan number atomically inside tx during fulfillment', async () => {
+      prisma.$queryRaw.mockImplementation((query) => {
+        const sql = query.text || query.strings?.join(' ') || '';
+        if (sql.includes('FROM delivery_orders')) {
+          return Promise.resolve([
+            {
+              id: 'do-1',
+              organization_id: 'org-1',
+              branch_id: 'branch-1',
+              status: 'READY',
+              do_number: 'DO-00001',
+              invoice_number: 'INV-00010',
+            },
+          ]);
+        }
+        if (sql.includes('FROM delivery_order_items')) {
+          return Promise.resolve([
+            {
+              id: 'do-item-1',
+              delivery_order_id: 'do-1',
+              product_name: 'Panadol Extra 500mg',
+              ordered_billed_quantity: 100,
+              ordered_bonus_quantity: 10,
+              delivered_billed_quantity: 0,
+              delivered_bonus_quantity: 0,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+
+      prisma.deliveryOrderItem.findMany.mockResolvedValue([
+        {
+          id: 'do-item-1',
+          orderedBilledQuantity: 100,
+          orderedBonusQuantity: 10,
+          deliveredBilledQuantity: 60,
+          deliveredBonusQuantity: 5,
+        },
+      ]);
+
+      await service.recordFulfillment(
+        'do-1',
+        {
+          items: [{ deliveryOrderItemId: 'do-item-1', billedQuantity: 60, bonusQuantity: 5 }],
+          notes: 'Dispatched via Van 3',
+        },
+        'user-1',
+      );
+
+      // Verify NumberingService was called for DELIVERY_CHALLAN with branchId and transaction client
+      expect(numberingService.generateNextNumber).toHaveBeenCalledWith(
+        'DELIVERY_CHALLAN',
+        'branch-1',
+        expect.anything(),
+      );
+
+      // Verify DeliveryFulfillment was created with the generated DC-00001 number
+      expect(prisma.deliveryFulfillment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            deliveryOrderId: 'do-1',
+            challanNumber: 'DC-00001',
+            fulfillmentNumber: 1,
+            notes: 'Dispatched via Van 3',
+          }),
+        }),
+      );
+
+      // Core Invariants: NEVER create stock movements or customer ledgers on fulfillment/challan
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+      expect(prisma.customerLedgerEntry.create).not.toHaveBeenCalled();
+    });
+
+    it('retrieves frozen, non-financial printable challan data with company header, destination, and physical quantities', async () => {
+      prisma.organization.findFirst.mockResolvedValue({
+        id: 'org-1',
+        name: 'Medix Pharma Distribution',
+        legalName: 'Medix Healthcare Pvt Ltd',
+        address: 'Plot 45, Sector 15, Korangi Industrial Area',
+        city: 'Karachi',
+        phone: '021-35001122',
+        email: 'billing@medix.pk',
+        ntn: '1234567-8',
+        strn: '9876543210',
+        drugSaleLicenseNo: 'DSL-KHI-2026-99',
+        logoUrl: 'https://medix.pk/logo.png',
+      });
+
+      prisma.deliveryOrder.findFirst.mockResolvedValue(mockDoForPrint);
+      prisma.deliveryFulfillment.findFirst.mockResolvedValue(mockFulfillmentForPrint);
+
+      const printData = await service.getFulfillmentPrintData('do-1', 'ful-1');
+
+      // Verify Challan Header & Company Info
+      expect(printData.challanNumber).toBe('DC-00001');
+      expect(printData.doNumber).toBe('DO-00001');
+      expect(printData.invoiceNumber).toBe('INV-00010');
+      expect(printData.company.name).toBe('Medix Pharma Distribution');
+      expect(printData.company.drugSaleLicenseNo).toBe('DSL-KHI-2026-99');
+
+      // Verify Frozen Delivery Destination Snapshot
+      expect(printData.customer.name).toBe('Al-Shifa Pharmacy');
+      expect(printData.deliveryDestination.recipientName).toBe('Dr. Tariq');
+      expect(printData.deliveryDestination.address).toBe('Shop 12, Block 5, Clifton');
+      expect(printData.salesAttribution.salesmanName).toBe('Ahmed Khan');
+      expect(printData.salesAttribution.routeName).toBe('Saddar Route');
+
+      // Verify Item Dispatched Physical Quantities (NO prices/financial amounts)
+      expect(printData.lines).toHaveLength(1);
+      const line = printData.lines[0];
+      expect(line.productName).toBe('Panadol Extra 500mg');
+      expect(line.batchNumber).toBe('BN-101');
+      expect(line.deliveredBilledQuantity).toBe(60);
+      expect(line.deliveredBonusQuantity).toBe(5);
+      expect(line.totalDispatchedQuantity).toBe(65);
+      expect((line as any).unitPrice).toBeUndefined();
+      expect((line as any).lineTotal).toBeUndefined();
+
+      // Verify Summary Box
+      expect(printData.summary.totalBilledQuantity).toBe(60);
+      expect(printData.summary.totalBonusQuantity).toBe(5);
+      expect(printData.summary.totalDispatchedQuantity).toBe(65);
+      expect((printData.summary as any).grandTotal).toBeUndefined();
+    });
+
+    it('throws NotFoundException when DO or fulfillment does not exist', async () => {
+      prisma.deliveryOrder.findFirst.mockResolvedValue(null);
+      prisma.deliveryFulfillment.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getFulfillmentPrintData('do-nonexistent', 'ful-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when fulfillment does not belong to the DO', async () => {
+      prisma.deliveryOrder.findFirst.mockResolvedValue(mockDoForPrint);
+      prisma.deliveryFulfillment.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getFulfillmentPrintData('do-1', 'ful-other'),
+      ).rejects.toThrow('Fulfillment event with ID "ful-other" not found for this Delivery Order');
+    });
+  });
 });
+

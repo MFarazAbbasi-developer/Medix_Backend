@@ -53,6 +53,15 @@ export class DeliveryOrdersController {
     return this.deliveryOrdersService.getDeliveryOrderById(id);
   }
 
+  @Get(':id/fulfillments/:fulfillmentId/print')
+  @RequirePermissions('delivery_orders.print')
+  async getFulfillmentPrintData(
+    @Param('id') id: string,
+    @Param('fulfillmentId') fulfillmentId: string,
+  ) {
+    return this.deliveryOrdersService.getFulfillmentPrintData(id, fulfillmentId);
+  }
+
   @Post()
   @RequirePermissions('delivery_orders.create')
   async createDeliveryOrder(

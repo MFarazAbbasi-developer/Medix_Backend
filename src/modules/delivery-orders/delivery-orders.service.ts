@@ -292,11 +292,18 @@ export class DeliveryOrdersService {
         );
       }
 
-      // 4. Calculate next fulfillment number
+      // 4. Calculate next fulfillment number and generate sequential Delivery Challan number atomically inside tx
       const count = await tx.deliveryFulfillment.count({
         where: { deliveryOrderId: id },
       });
       const fulfillmentNumber = count + 1;
+
+      const challanGen = await this.numberingService.generateNextNumber(
+        'DELIVERY_CHALLAN' as DocumentType,
+        lockedDo.branch_id,
+        tx,
+      );
+      const challanNumber = challanGen.documentNumber;
 
       // 5. Create DeliveryFulfillment event and fulfillment items
       const nonZeroItems = dto.items.filter(
@@ -308,6 +315,7 @@ export class DeliveryOrdersService {
           organizationId,
           deliveryOrderId: id,
           fulfillmentNumber,
+          challanNumber,
           fulfilledById: userId || null,
           notes: dto.notes?.trim() || null,
           items: {
@@ -678,5 +686,135 @@ export class DeliveryOrdersService {
     });
 
     return invoices;
+  }
+
+  /**
+   * Retrieves frozen, non-financial printable data for a specific Delivery Challan.
+   * Delivery Challan is an operational transit document strictly containing physical quantities.
+   */
+  async getFulfillmentPrintData(id: string, fulfillmentId: string) {
+    const organizationId = await this.getOrganizationId();
+
+    const [org, deliveryOrder, fulfillment] = await Promise.all([
+      this.prisma.organization.findFirst({
+        where: { id: organizationId },
+      }),
+      this.prisma.deliveryOrder.findFirst({
+        where: { id, organizationId },
+        include: {
+          branch: true,
+          warehouse: true,
+        },
+      }),
+      this.prisma.deliveryFulfillment.findFirst({
+        where: { id: fulfillmentId, deliveryOrderId: id, organizationId },
+        include: {
+          fulfilledByUser: {
+            select: { id: true, displayName: true, username: true },
+          },
+          items: {
+            include: {
+              deliveryOrderItem: true,
+            },
+            orderBy: { id: 'asc' },
+          },
+        },
+      }),
+    ]);
+
+    if (!deliveryOrder) {
+      throw new NotFoundException(`Delivery Order with ID "${id}" not found`);
+    }
+
+    if (!fulfillment) {
+      throw new NotFoundException(
+        `Fulfillment event with ID "${fulfillmentId}" not found for this Delivery Order`,
+      );
+    }
+
+    let totalBilled = 0;
+    let totalBonus = 0;
+
+    const lines = fulfillment.items.map((fit, index) => {
+      const billed = fit.deliveredBilledQuantity;
+      const bonus = fit.deliveredBonusQuantity;
+      totalBilled += billed;
+      totalBonus += bonus;
+
+      return {
+        itemNumber: index + 1,
+        productName: fit.deliveryOrderItem.productName,
+        productSku: fit.deliveryOrderItem.productSku,
+        genericName: fit.deliveryOrderItem.genericName || null,
+        packSize: fit.deliveryOrderItem.packSize || null,
+        unitOfMeasurement: fit.deliveryOrderItem.unitOfMeasurement || null,
+        batchNumber: fit.deliveryOrderItem.batchNumber,
+        expiryDate: fit.deliveryOrderItem.expiryDate.toISOString(),
+        orderedBilledQuantity: fit.deliveryOrderItem.orderedBilledQuantity,
+        orderedBonusQuantity: fit.deliveryOrderItem.orderedBonusQuantity,
+        deliveredBilledQuantity: billed,
+        deliveredBonusQuantity: bonus,
+        totalDispatchedQuantity: billed + bonus,
+      };
+    });
+
+    return {
+      company: {
+        name: org?.name || 'Medix Pharma',
+        legalName: org?.legalName || null,
+        address: org?.address || null,
+        city: org?.city || null,
+        phone: org?.phone || null,
+        email: org?.email || null,
+        ntn: org?.ntn || null,
+        strn: org?.strn || null,
+        drugSaleLicenseNo: org?.drugSaleLicenseNo || null,
+        logoUrl: org?.logoUrl || null,
+      },
+      branch: {
+        name: deliveryOrder.branch?.name || 'Main Branch',
+        code: deliveryOrder.branch?.code || 'HO',
+        address: deliveryOrder.branch?.address || null,
+        city: deliveryOrder.branch?.city || null,
+        phone: deliveryOrder.branch?.phone || null,
+      },
+      challanNumber: fulfillment.challanNumber,
+      fulfillmentDate: fulfillment.fulfilledAt.toISOString(),
+      fulfillmentNumber: fulfillment.fulfillmentNumber,
+      doNumber: deliveryOrder.doNumber,
+      invoiceNumber: deliveryOrder.invoiceNumber,
+      invoiceDate: deliveryOrder.invoiceDate.toISOString(),
+      status: deliveryOrder.status,
+      notes: fulfillment.notes || null,
+      customer: {
+        name: deliveryOrder.customerName,
+        code: deliveryOrder.customerCode,
+      },
+      deliveryDestination: {
+        title: deliveryOrder.deliveryTitle || null,
+        recipientName: deliveryOrder.deliveryRecipient || null,
+        phone: deliveryOrder.deliveryPhone || null,
+        address: deliveryOrder.deliveryAddress || null,
+        city: deliveryOrder.deliveryCity || null,
+        instructions: deliveryOrder.deliveryInstructions || null,
+      },
+      salesAttribution: {
+        salesmanName: deliveryOrder.salesmanName || null,
+        salesmanCode: deliveryOrder.salesmanCode || null,
+        routeName: deliveryOrder.routeName || null,
+        routeCode: deliveryOrder.routeCode || null,
+      },
+      dispatchedBy:
+        fulfillment.fulfilledByUser?.displayName ||
+        fulfillment.fulfilledByUser?.username ||
+        'System',
+      lines,
+      summary: {
+        totalBilledQuantity: totalBilled,
+        totalBonusQuantity: totalBonus,
+        totalDispatchedQuantity: totalBilled + totalBonus,
+        totalLinesCount: lines.length,
+      },
+    };
   }
 }

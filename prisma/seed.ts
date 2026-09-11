@@ -174,6 +174,7 @@ async function main() {
     { documentType: DocumentType.STOCK_TRANSFER, prefix: 'TRF-', padding: 5 },
     { documentType: DocumentType.PRODUCT_RECALL, prefix: 'RCL-', padding: 5 },
     { documentType: DocumentType.DELIVERY_ORDER, prefix: 'DO-', padding: 5 },
+    { documentType: DocumentType.DELIVERY_CHALLAN, prefix: 'DC-', padding: 5 },
   ];
 
   for (const item of defaultSeriesList) {
@@ -273,6 +274,7 @@ async function main() {
     { code: 'delivery_orders.create', description: 'Create delivery orders from posted sales invoices' },
     { code: 'delivery_orders.fulfill', description: 'Record partial and full fulfillment events on delivery orders' },
     { code: 'delivery_orders.cancel', description: 'Cancel unfulfilled delivery orders' },
+    { code: 'delivery_orders.print', description: 'Print delivery challans and dispatch notes' },
   ];
 
   for (const p of permissionsList) {
@@ -320,7 +322,7 @@ async function main() {
     'sales.view', 'sales.create', 'sales.post',
     'sales.salesmen.view', 'sales.salesmen.manage',
     'sales.routes.view', 'sales.routes.manage',
-    'delivery_orders.view', 'delivery_orders.create', 'delivery_orders.fulfill', 'delivery_orders.cancel',
+    'delivery_orders.view', 'delivery_orders.create', 'delivery_orders.fulfill', 'delivery_orders.cancel', 'delivery_orders.print',
     'returns.view', 'returns.manage',
     'expiry.view', 'expiry.quarantine', 'recalls.manage',
     'reports.view', 'reports.export', 'masterdata.manage',

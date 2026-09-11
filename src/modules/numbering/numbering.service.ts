@@ -108,15 +108,17 @@ export class NumberingService {
   async findMatchingSeries(
     documentType: DocumentType,
     branchId?: string,
+    tx?: Prisma.TransactionClient,
   ) {
-    const org = await this.prisma.organization.findFirst();
+    const db = tx || this.prisma;
+    const org = await db.organization.findFirst();
     if (!org) {
       throw new NotFoundException('Organization profile not found');
     }
 
     // 1. Check branch-specific series if branchId provided
     if (branchId) {
-      const branchSeries = await this.prisma.numberingSeries.findFirst({
+      const branchSeries = await db.numberingSeries.findFirst({
         where: {
           organizationId: org.id,
           branchId,
@@ -131,7 +133,7 @@ export class NumberingService {
     }
 
     // 2. Fallback to global / default series (branchId is null)
-    const globalSeries = await this.prisma.numberingSeries.findFirst({
+    const globalSeries = await db.numberingSeries.findFirst({
       where: {
         organizationId: org.id,
         branchId: null,
@@ -145,7 +147,7 @@ export class NumberingService {
     }
 
     // 3. Fallback to any active series for documentType
-    const anyActiveSeries = await this.prisma.numberingSeries.findFirst({
+    const anyActiveSeries = await db.numberingSeries.findFirst({
       where: {
         organizationId: org.id,
         documentType,
@@ -168,8 +170,9 @@ export class NumberingService {
   async previewNextNumber(
     documentType: DocumentType,
     branchId?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<GeneratedNumberResult> {
-    const series = await this.findMatchingSeries(documentType, branchId);
+    const series = await this.findMatchingSeries(documentType, branchId, tx);
     const preview = this.formatNumber(
       series.prefix,
       series.nextNumber,
@@ -192,11 +195,13 @@ export class NumberingService {
   async generateNextNumber(
     documentType: DocumentType,
     branchId?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<GeneratedNumberResult> {
-    const series = await this.findMatchingSeries(documentType, branchId);
+    const series = await this.findMatchingSeries(documentType, branchId, tx);
+    const db = tx || this.prisma;
 
     // Genuinely atomic increment directly in PostgreSQL
-    const rows = await this.prisma.$queryRaw<
+    const rows = await db.$queryRaw<
       Array<{
         id: string;
         prefix: string;

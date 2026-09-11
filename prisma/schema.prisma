@@ -149,6 +149,7 @@ enum DocumentType {
   STOCK_TRANSFER
   PRODUCT_RECALL
   DELIVERY_ORDER
+  DELIVERY_CHALLAN
 }
 
 enum SettingDataType {
@@ -1858,6 +1859,7 @@ model DeliveryFulfillment {
   organizationId    String                    @map("organization_id")
   deliveryOrderId   String                    @map("delivery_order_id")
   fulfillmentNumber Int                       @map("fulfillment_number")
+  challanNumber     String                    @map("challan_number")
   fulfilledAt       DateTime                  @default(now()) @map("fulfilled_at")
   fulfilledById     String?                   @map("fulfilled_by_id")
   notes             String?
@@ -1868,6 +1870,7 @@ model DeliveryFulfillment {
   fulfilledByUser   User?                     @relation("DeliveryFulfillmentBy", fields: [fulfilledById], references: [id], onDelete: SetNull)
   items             DeliveryFulfillmentItem[]
 
+  @@unique([organizationId, challanNumber])
   @@index([deliveryOrderId])
   @@index([organizationId])
   @@map("delivery_fulfillments")

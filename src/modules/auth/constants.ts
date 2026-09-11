@@ -352,6 +352,10 @@ export const INITIAL_PERMISSIONS = [
     code: 'delivery_orders.cancel',
     description: 'Cancel unfulfilled delivery orders',
   },
+  {
+    code: 'delivery_orders.print',
+    description: 'Print delivery challans and dispatch notes',
+  },
 ] as const;
 
 export const PERMISSIONS_KEY = 'permissions';
