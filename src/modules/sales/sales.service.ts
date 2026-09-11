@@ -298,6 +298,9 @@ export class SalesService {
         notes: p.notes || undefined,
       })),
       notes: draft.notes || undefined,
+      salesmanId: draft.salesmanId || undefined,
+      routeId: draft.routeId || undefined,
+      deliveryAddressId: draft.deliveryAddressId || undefined,
       isDraft: false,
     };
 
@@ -500,6 +503,102 @@ export class SalesService {
   }
 
   /**
+   * Helper: Validates salesman and route compatibility for an invoice within organization/branch.
+   */
+  private async validateInvoiceSalesmanAndRoute(
+    organizationId: string,
+    branchId: string,
+    salesmanId?: string | null,
+    routeId?: string | null,
+  ) {
+    let salesman: { id: string; name: string; branchId: string | null } | null = null;
+    let route: { id: string; name: string; branchId: string | null } | null = null;
+
+    if (salesmanId) {
+      salesman = await this.prisma.salesman.findFirst({
+        where: { id: salesmanId, organizationId },
+        select: { id: true, name: true, branchId: true },
+      });
+      if (!salesman) {
+        throw new BadRequestException(`Salesman with ID "${salesmanId}" does not exist in this organization.`);
+      }
+      if (salesman.branchId && salesman.branchId !== branchId) {
+        throw new BadRequestException(
+          `Salesman "${salesman.name}" belongs to a different branch and cannot be attributed to an invoice in this branch.`,
+        );
+      }
+    }
+
+    if (routeId) {
+      route = await this.prisma.salesRoute.findFirst({
+        where: { id: routeId, organizationId },
+        select: { id: true, name: true, branchId: true },
+      });
+      if (!route) {
+        throw new BadRequestException(`Sales route with ID "${routeId}" does not exist in this organization.`);
+      }
+      if (route.branchId && route.branchId !== branchId) {
+        throw new BadRequestException(
+          `Sales route "${route.name}" belongs to a different branch and cannot be attributed to an invoice in this branch.`,
+        );
+      }
+    }
+
+    if (salesman && route) {
+      // Check many-to-many SalesmanRoute assignment
+      const assignment = await this.prisma.salesmanRoute.findUnique({
+        where: {
+          salesmanId_routeId: {
+            salesmanId: salesman.id,
+            routeId: route.id,
+          },
+        },
+      });
+
+      if (!assignment) {
+        throw new BadRequestException(
+          `Salesman "${salesman.name}" is not assigned to route "${route.name}". Please assign the salesman to this route or choose a valid route.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Helper: Validates delivery address ownership and active status for an invoice.
+   */
+  private async validateInvoiceDeliveryAddress(
+    organizationId: string,
+    customerId: string,
+    deliveryAddressId?: string | null,
+  ) {
+    if (!deliveryAddressId) return null;
+
+    const address = await this.prisma.customerDeliveryAddress.findFirst({
+      where: { id: deliveryAddressId, organizationId },
+    });
+
+    if (!address) {
+      throw new BadRequestException(
+        `Selected delivery address with ID "${deliveryAddressId}" does not exist in this organization.`,
+      );
+    }
+
+    if (address.customerId !== customerId) {
+      throw new BadRequestException(
+        'Selected delivery address does not belong to the selected customer.',
+      );
+    }
+
+    if (!address.isActive) {
+      throw new BadRequestException(
+        'Selected delivery address is inactive and cannot be used for new invoices.',
+      );
+    }
+
+    return address;
+  }
+
+  /**
    * Internal helper to create a unposted DRAFT invoice without locks or stock movements.
    */
   private async createDraftInvoice(
@@ -509,6 +608,23 @@ export class SalesService {
     dto: CreateSalesInvoiceDto,
   ) {
     const draftNumber = `DFT-${Date.now().toString().slice(-6)}`;
+
+    // Validate salesman & route compatibility
+    if (dto.salesmanId || dto.routeId) {
+      await this.validateInvoiceSalesmanAndRoute(
+        organizationId,
+        branchId,
+        dto.salesmanId,
+        dto.routeId,
+      );
+    }
+
+    // Validate delivery address ownership and active status
+    const deliveryAddress = await this.validateInvoiceDeliveryAddress(
+      organizationId,
+      dto.customerId,
+      dto.deliveryAddressId,
+    );
 
     // Quick resolve prices for draft display
     let subtotal = 0;
@@ -663,12 +779,24 @@ export class SalesService {
         paidAmount: new Prisma.Decimal(0),
         balanceAmount: new Prisma.Decimal(netTotal),
         notes: dto.notes?.trim() || null,
+        salesmanId: dto.salesmanId || null,
+        routeId: dto.routeId || null,
+        deliveryAddressId: deliveryAddress ? deliveryAddress.id : null,
+        deliveryTitle: deliveryAddress ? deliveryAddress.title : null,
+        deliveryRecipient: deliveryAddress ? deliveryAddress.recipientName : null,
+        deliveryPhone: deliveryAddress ? deliveryAddress.phone : null,
+        deliveryAddress: deliveryAddress ? deliveryAddress.address : null,
+        deliveryCity: deliveryAddress ? deliveryAddress.city : null,
+        deliveryInstructions: deliveryAddress ? deliveryAddress.deliveryInstructions : null,
         items: {
           create: draftItemsData,
         },
       },
       include: {
         customer: true,
+        salesman: { select: { id: true, name: true, code: true, phone: true } },
+        route: { select: { id: true, name: true, code: true, city: true, area: true } },
+        deliveryAddressRef: true,
         items: true,
       },
     });
@@ -697,9 +825,20 @@ export class SalesService {
       if (!lockedCustomer) {
         throw new NotFoundException(`Customer with ID "${dto.customerId}" not found`);
       }
+
       if (!lockedCustomer.is_active) {
         throw new BadRequestException(
-          `Customer "${lockedCustomer.name}" is currently deactivated`,
+          `Customer "${lockedCustomer.name}" is disabled / inactive and cannot be billed.`,
+        );
+      }
+
+      // Validate delivery address ownership and active status
+      let deliveryAddress: any = null;
+      if (dto.deliveryAddressId) {
+        deliveryAddress = await this.validateInvoiceDeliveryAddress(
+          organizationId,
+          lockedCustomer.id,
+          dto.deliveryAddressId,
         );
       }
 
@@ -710,6 +849,16 @@ export class SalesService {
       if (!warehouse) {
         throw new NotFoundException(
           `Active warehouse with ID "${dto.warehouseId}" not found in branch`,
+        );
+      }
+
+      // Validate salesman & route compatibility for posted invoice
+      if (dto.salesmanId || dto.routeId) {
+        await this.validateInvoiceSalesmanAndRoute(
+          organizationId,
+          branchId,
+          dto.salesmanId,
+          dto.routeId,
         );
       }
 
@@ -1064,6 +1213,15 @@ export class SalesService {
           totalCostPrice: new Prisma.Decimal(totalCostPrice),
           grossProfit: new Prisma.Decimal(grossProfit),
           notes: dto.notes?.trim() || null,
+          salesmanId: dto.salesmanId || null,
+          routeId: dto.routeId || null,
+          deliveryAddressId: deliveryAddress ? deliveryAddress.id : null,
+          deliveryTitle: deliveryAddress ? deliveryAddress.title : null,
+          deliveryRecipient: deliveryAddress ? deliveryAddress.recipientName : null,
+          deliveryPhone: deliveryAddress ? deliveryAddress.phone : null,
+          deliveryAddress: deliveryAddress ? deliveryAddress.address : null,
+          deliveryCity: deliveryAddress ? deliveryAddress.city : null,
+          deliveryInstructions: deliveryAddress ? deliveryAddress.deliveryInstructions : null,
           postedAt: new Date(),
           postedByUserId: userId || null,
         },
@@ -1325,6 +1483,9 @@ export class SalesService {
       customerId,
       branchId,
       warehouseId,
+      salesmanId,
+      routeId,
+      deliveryAddressId,
       status,
       paymentMethod,
       startDate,
@@ -1340,6 +1501,9 @@ export class SalesService {
       ...(customerId && { customerId }),
       ...(branchId && { branchId }),
       ...(warehouseId && { warehouseId }),
+      ...(salesmanId && { salesmanId }),
+      ...(routeId && { routeId }),
+      ...(deliveryAddressId && { deliveryAddressId }),
       ...(status && { status }),
       ...(paymentMethod && { paymentMethod }),
       ...(startDate || endDate
@@ -1382,6 +1546,15 @@ export class SalesService {
           warehouse: {
             select: { id: true, name: true, code: true },
           },
+          salesman: {
+            select: { id: true, name: true, code: true, phone: true },
+          },
+          route: {
+            select: { id: true, name: true, code: true, city: true, area: true },
+          },
+          deliveryAddressRef: {
+            select: { id: true, title: true, address: true, city: true, recipientName: true, phone: true },
+          },
           _count: {
             select: { items: true, payments: true },
           },
@@ -1412,6 +1585,13 @@ export class SalesService {
         customer: true,
         branch: true,
         warehouse: true,
+        salesman: {
+          select: { id: true, name: true, code: true, phone: true, email: true },
+        },
+        route: {
+          select: { id: true, name: true, code: true, city: true, area: true },
+        },
+        deliveryAddressRef: true,
         postedByUser: {
           select: { id: true, displayName: true, username: true },
         },

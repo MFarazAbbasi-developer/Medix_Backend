@@ -19,6 +19,18 @@ export class QuerySalesInvoiceDto {
   @IsOptional()
   warehouseId?: string;
 
+  @IsString()
+  @IsOptional()
+  salesmanId?: string;
+
+  @IsString()
+  @IsOptional()
+  routeId?: string;
+
+  @IsString()
+  @IsOptional()
+  deliveryAddressId?: string;
+
   @IsEnum(SalesInvoiceStatus)
   @IsOptional()
   status?: SalesInvoiceStatus;

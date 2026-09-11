@@ -122,6 +122,18 @@ export class CreateSalesInvoiceDto {
   @IsOptional()
   notes?: string;
 
+  @IsString()
+  @IsOptional()
+  salesmanId?: string;
+
+  @IsString()
+  @IsOptional()
+  routeId?: string;
+
+  @IsString()
+  @IsOptional()
+  deliveryAddressId?: string;
+
   @IsBoolean()
   @IsOptional()
   isDraft?: boolean = false;

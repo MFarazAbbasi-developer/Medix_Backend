@@ -109,6 +109,45 @@ describe('SalesService', () => {
       promotionalScheme: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      customerDeliveryAddress: {
+        findFirst: vi.fn().mockImplementation(({ where }) => {
+          if (where.id === 'addr-1') {
+            return Promise.resolve({
+              id: 'addr-1',
+              organizationId: 'org-1',
+              customerId: 'cust-1',
+              title: 'Main Branch Pharmacy',
+              recipientName: 'Dr. Tariq',
+              phone: '03001234567',
+              address: 'Shop 12, Main Market',
+              city: 'Karachi',
+              deliveryInstructions: 'Deliver 10am-4pm',
+              isActive: true,
+            });
+          }
+          if (where.id === 'addr-inactive') {
+            return Promise.resolve({
+              id: 'addr-inactive',
+              organizationId: 'org-1',
+              customerId: 'cust-1',
+              title: 'Closed Site',
+              address: 'Some Address',
+              isActive: false,
+            });
+          }
+          if (where.id === 'addr-other-cust') {
+            return Promise.resolve({
+              id: 'addr-other-cust',
+              organizationId: 'org-1',
+              customerId: 'cust-other',
+              title: 'Other Cust Address',
+              address: 'Some Address',
+              isActive: true,
+            });
+          }
+          return Promise.resolve(null);
+        }),
+      },
       salesInvoice: {
         create: vi.fn().mockResolvedValue({
           id: 'inv-1',
@@ -481,4 +520,117 @@ describe('SalesService', () => {
     // Verify draft was NOT deleted because posting failed
     expect(prisma.salesInvoice.delete).not.toHaveBeenCalled();
   });
+
+  describe('Delivery Address Validation and Snapshotting', () => {
+    it('persists immutable address snapshot upon posting invoice', async () => {
+      await service.createSalesInvoice(
+        {
+          customerId: 'cust-1',
+          warehouseId: 'wh-1',
+          deliveryAddressId: 'addr-1',
+          paymentMethod: 'CASH' as any,
+          items: [
+            {
+              productId: 'prod-1',
+              batchId: 'batch-1',
+              billedQuantity: 2,
+              unitPrice: 48,
+            },
+          ],
+        },
+        'user-1',
+      );
+
+      expect(prisma.salesInvoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            deliveryAddressId: 'addr-1',
+            deliveryTitle: 'Main Branch Pharmacy',
+            deliveryRecipient: 'Dr. Tariq',
+            deliveryPhone: '03001234567',
+            deliveryAddress: 'Shop 12, Main Market',
+            deliveryCity: 'Karachi',
+            deliveryInstructions: 'Deliver 10am-4pm',
+          }),
+        }),
+      );
+    });
+
+    it('rejects posting with an inactive delivery address', async () => {
+      await expect(
+        service.createSalesInvoice(
+          {
+            customerId: 'cust-1',
+            warehouseId: 'wh-1',
+            deliveryAddressId: 'addr-inactive',
+            paymentMethod: 'CASH' as any,
+            items: [
+              {
+                productId: 'prod-1',
+                batchId: 'batch-1',
+                billedQuantity: 2,
+                unitPrice: 48,
+              },
+            ],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow('Selected delivery address is inactive and cannot be used for new invoices.');
+    });
+
+    it('rejects posting with delivery address belonging to another customer', async () => {
+      await expect(
+        service.createSalesInvoice(
+          {
+            customerId: 'cust-1',
+            warehouseId: 'wh-1',
+            deliveryAddressId: 'addr-other-cust',
+            paymentMethod: 'CASH' as any,
+            items: [
+              {
+                productId: 'prod-1',
+                batchId: 'batch-1',
+                billedQuantity: 2,
+                unitPrice: 48,
+              },
+            ],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow('Selected delivery address does not belong to the selected customer.');
+    });
+
+    it('persists address snapshot when creating draft invoice', async () => {
+      await service.createSalesInvoice(
+        {
+          customerId: 'cust-1',
+          warehouseId: 'wh-1',
+          deliveryAddressId: 'addr-1',
+          paymentMethod: 'CASH' as any,
+          isDraft: true,
+          items: [
+            {
+              productId: 'prod-1',
+              batchId: 'batch-1',
+              billedQuantity: 2,
+              unitPrice: 48,
+            },
+          ],
+        },
+        'user-1',
+      );
+
+      expect(prisma.salesInvoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'DRAFT',
+            deliveryAddressId: 'addr-1',
+            deliveryTitle: 'Main Branch Pharmacy',
+            deliveryAddress: 'Shop 12, Main Market',
+          }),
+        }),
+      );
+    });
+  });
 });
+

@@ -79,6 +79,14 @@ export class UpdateCustomerDto {
   @IsOptional()
   isTaxExempt?: boolean;
 
+  @IsString()
+  @IsOptional()
+  defaultSalesmanId?: string;
+
+  @IsString()
+  @IsOptional()
+  routeId?: string;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;

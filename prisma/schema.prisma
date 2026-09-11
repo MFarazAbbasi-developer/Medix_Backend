@@ -200,6 +200,9 @@ model Organization {
   stockTransfers        StockTransfer[]
   productRecalls        ProductRecall[]
   importJobs            ImportJob[]
+  salesmen              Salesman[]
+  salesRoutes           SalesRoute[]
+  customerDeliveryAddresses CustomerDeliveryAddress[]
 
   @@map("organizations")
 }
@@ -235,6 +238,8 @@ model Branch {
   purchaseReturns       PurchaseReturn[]
   stockTransfers        StockTransfer[]
   importJobs            ImportJob[]
+  salesmen              Salesman[]
+  salesRoutes           SalesRoute[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -983,22 +988,126 @@ model Customer {
   currentBalance            Decimal      @default(0.00) @map("current_balance") @db.Decimal(12, 2) // Cached total receivable balance
   defaultDiscountPercentage Decimal      @default(0.00) @map("default_discount_percentage") @db.Decimal(5, 2)
   isTaxExempt               Boolean      @default(false) @map("is_tax_exempt")
+  defaultSalesmanId         String?      @map("default_salesman_id")
+  routeId                   String?      @map("route_id")
   isActive                  Boolean      @default(true) @map("is_active")
   createdAt                 DateTime     @default(now()) @map("created_at")
   updatedAt                 DateTime     @updatedAt @map("updated_at")
 
   organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  defaultSalesman    Salesman?             @relation(fields: [defaultSalesmanId], references: [id], onDelete: SetNull)
+  route              SalesRoute?           @relation(fields: [routeId], references: [id], onDelete: SetNull)
   salesInvoices      SalesInvoice[]
   ledgerEntries      CustomerLedgerEntry[]
   pricingRules       CustomerPricingRule[]
   customerPayments   CustomerPayment[]
   salesReturns       SalesReturn[]
   promotionalSchemes PromotionalScheme[]
+  deliveryAddresses  CustomerDeliveryAddress[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
   @@index([organizationId, phone])
+  @@index([organizationId, defaultSalesmanId])
+  @@index([organizationId, routeId])
   @@map("customers")
+}
+
+/// Salesman / Field Commercial Representative model
+model Salesman {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  branchId       String?  @map("branch_id")
+  code           String   // e.g. "SM-001"
+  name           String
+  phone          String?
+  email          String?
+  notes          String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  routes              SalesmanRoute[]
+  defaultForCustomers Customer[]
+  salesInvoices       SalesInvoice[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, branchId])
+  @@index([organizationId, isActive])
+  @@map("salesmen")
+}
+
+/// Sales Route / Territory model
+model SalesRoute {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  branchId       String?  @map("branch_id")
+  code           String   // e.g. "RT-001"
+  name           String   // e.g. "Saddar & Clifton Route"
+  city           String?
+  area           String?
+  notes          String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  salesmen          SalesmanRoute[]
+  customers         Customer[]
+  salesInvoices     SalesInvoice[]
+  deliveryAddresses CustomerDeliveryAddress[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, branchId])
+  @@index([organizationId, isActive])
+  @@map("sales_routes")
+}
+
+/// Many-to-Many Join: Salesman <-> SalesRoute
+model SalesmanRoute {
+  salesmanId String   @map("salesman_id")
+  routeId    String   @map("route_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  salesman Salesman   @relation(fields: [salesmanId], references: [id], onDelete: Cascade)
+  route    SalesRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@id([salesmanId, routeId])
+  @@index([routeId])
+  @@map("salesman_routes")
+}
+
+/// Customer Delivery Address model (Multiple delivery locations per customer)
+model CustomerDeliveryAddress {
+  id                   String   @id @default(uuid())
+  organizationId       String   @map("organization_id")
+  customerId           String   @map("customer_id")
+  title                String   // e.g. "Main Hospital Pharmacy", "Clifton Clinic Branch"
+  recipientName        String?  @map("recipient_name")
+  phone                String?
+  address              String
+  city                 String?
+  routeId              String?  @map("route_id")
+  deliveryInstructions String?  @map("delivery_instructions")
+  isDefault            Boolean  @default(false) @map("is_default")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  route        SalesRoute?    @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  salesInvoices SalesInvoice[]
+
+  @@index([organizationId, customerId])
+  @@index([organizationId, isActive])
+  @@index([routeId])
+  @@map("customer_delivery_addresses")
 }
 
 /// Customer-Specific Pricing Overrides (contracted rates or custom discounts)
@@ -1161,6 +1270,18 @@ model SalesInvoice {
   grossProfit    Decimal @default(0.00) @map("gross_profit") @db.Decimal(12, 2) // (netTotal - taxAmount) - totalCostPrice
 
   notes              String?
+  salesmanId         String?   @map("salesman_id")
+  routeId            String?   @map("route_id")
+  deliveryAddressId  String?   @map("delivery_address_id")
+
+  // Immutable snapshots persisted upon invoice creation/posting:
+  deliveryTitle        String? @map("delivery_title")
+  deliveryRecipient    String? @map("delivery_recipient")
+  deliveryPhone        String? @map("delivery_phone")
+  deliveryAddress      String? @map("delivery_address")
+  deliveryCity         String? @map("delivery_city")
+  deliveryInstructions String? @map("delivery_instructions")
+
   postedAt           DateTime? @map("posted_at")
   postedByUserId     String?   @map("posted_by_user_id")
   cancelledAt        DateTime? @map("cancelled_at")
@@ -1169,12 +1290,15 @@ model SalesInvoice {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouse       Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  postedByUser    User?        @relation("SalesInvoicePostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
-  cancelledByUser User?        @relation("SalesInvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse                @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  customer           Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesman           Salesman?                @relation(fields: [salesmanId], references: [id], onDelete: SetNull)
+  route              SalesRoute?              @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  deliveryAddressRef CustomerDeliveryAddress? @relation(fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+  postedByUser       User?                    @relation("SalesInvoicePostedBy", fields: [postedByUserId], references: [id], onDelete: SetNull)
+  cancelledByUser    User?                    @relation("SalesInvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
 
   items              SalesInvoiceItem[]
   payments           SalesInvoicePayment[]
@@ -1185,6 +1309,9 @@ model SalesInvoice {
   @@unique([organizationId, invoiceNumber])
   @@index([organizationId, branchId, invoiceDate])
   @@index([customerId, status])
+  @@index([organizationId, salesmanId])
+  @@index([organizationId, routeId])
+  @@index([organizationId, deliveryAddressId])
   @@map("sales_invoices")
 }
 

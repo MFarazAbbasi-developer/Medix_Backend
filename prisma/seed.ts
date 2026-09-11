@@ -264,6 +264,10 @@ async function main() {
     { code: 'masterdata.manage', description: 'Manage products, batches, suppliers, and customers' },
     { code: 'imports.view', description: 'View imports history, preview uploaded files, templates, and error reports' },
     { code: 'imports.manage', description: 'Upload files, confirm/execute data imports, and cancel jobs' },
+    { code: 'sales.salesmen.view', description: 'View salesmen directory and route assignments' },
+    { code: 'sales.salesmen.manage', description: 'Create, update, activate/deactivate salesmen and assign routes' },
+    { code: 'sales.routes.view', description: 'View sales routes and territories' },
+    { code: 'sales.routes.manage', description: 'Create, update, activate/deactivate sales routes' },
   ];
 
   for (const p of permissionsList) {
@@ -304,11 +308,13 @@ async function main() {
     });
   }
 
-  // Link permissions to PHARMACIST (Inventory, Purchasing, Sales, Expiry, Recalls, Reports)
+  // Link permissions to PHARMACIST (Inventory, Purchasing, Sales, Expiry, Recalls, Reports, Sales Operations)
   const pharmacistPermCodes = [
     'inventory.view', 'inventory.adjust', 'inventory.transfer',
     'purchasing.view', 'purchasing.create', 'purchasing.post',
     'sales.view', 'sales.create', 'sales.post',
+    'sales.salesmen.view', 'sales.salesmen.manage',
+    'sales.routes.view', 'sales.routes.manage',
     'returns.view', 'returns.manage',
     'expiry.view', 'expiry.quarantine', 'recalls.manage',
     'reports.view', 'reports.export', 'masterdata.manage',
@@ -569,6 +575,115 @@ async function main() {
   }
 
   // =========================================================================
+  // 8.5. SALES ROUTES & SALESMEN
+  // =========================================================================
+  console.log('🗺️ Seeding Sales Routes & Commercial Salesmen...');
+  const routesData = [
+    {
+      branchId: hoBranch.id,
+      code: 'RT-KHI-01',
+      name: 'Saddar & Clifton Commercial Route',
+      city: 'Karachi',
+      area: 'District South (Saddar, Clifton, Cantt)',
+    },
+    {
+      branchId: hoBranch.id,
+      code: 'RT-KHI-02',
+      name: 'Gulshan & East Healthcare Corridor',
+      city: 'Karachi',
+      area: 'District East (Gulshan-e-Iqbal, University Rd, Stadium Rd)',
+    },
+    {
+      branchId: lhrBranch.id,
+      code: 'RT-LHR-01',
+      name: 'Ferozepur & Gulberg Central Route',
+      city: 'Lahore',
+      area: 'Gulberg, Ferozepur Rd, Model Town',
+    },
+  ];
+
+  const salesRoutes: Record<string, string> = {};
+  for (const r of routesData) {
+    const route = await prisma.salesRoute.upsert({
+      where: { organizationId_code: { organizationId: org.id, code: r.code } },
+      update: { name: r.name, city: r.city, area: r.area, branchId: r.branchId },
+      create: {
+        organizationId: org.id,
+        branchId: r.branchId,
+        code: r.code,
+        name: r.name,
+        city: r.city,
+        area: r.area,
+        isActive: true,
+      },
+    });
+    salesRoutes[r.code] = route.id;
+  }
+
+  const salesmenData = [
+    {
+      branchId: hoBranch.id,
+      code: 'SM-001',
+      name: 'Tariq Mahmood',
+      phone: '+92-300-1122334',
+      email: 'tariq.sales@medixpharma.pk',
+      assignedRouteCodes: ['RT-KHI-01', 'RT-KHI-02'],
+    },
+    {
+      branchId: hoBranch.id,
+      code: 'SM-002',
+      name: 'Rashid Ali Khan',
+      phone: '+92-321-5566778',
+      email: 'rashid.sales@medixpharma.pk',
+      assignedRouteCodes: ['RT-KHI-01'],
+    },
+    {
+      branchId: lhrBranch.id,
+      code: 'SM-003',
+      name: 'Kamran Zubair',
+      phone: '+92-333-9988776',
+      email: 'kamran.sales@medixpharma.pk',
+      assignedRouteCodes: ['RT-LHR-01'],
+    },
+  ];
+
+  const salesmen: Record<string, string> = {};
+  for (const sm of salesmenData) {
+    const salesman = await prisma.salesman.upsert({
+      where: { organizationId_code: { organizationId: org.id, code: sm.code } },
+      update: { name: sm.name, phone: sm.phone, email: sm.email, branchId: sm.branchId },
+      create: {
+        organizationId: org.id,
+        branchId: sm.branchId,
+        code: sm.code,
+        name: sm.name,
+        phone: sm.phone,
+        email: sm.email,
+        isActive: true,
+      },
+    });
+    salesmen[sm.code] = salesman.id;
+
+    for (const rCode of sm.assignedRouteCodes) {
+      if (salesRoutes[rCode]) {
+        await prisma.salesmanRoute.upsert({
+          where: {
+            salesmanId_routeId: {
+              salesmanId: salesman.id,
+              routeId: salesRoutes[rCode],
+            },
+          },
+          update: {},
+          create: {
+            salesmanId: salesman.id,
+            routeId: salesRoutes[rCode],
+          },
+        });
+      }
+    }
+  }
+
+  // =========================================================================
   // 9. CUSTOMERS
   // =========================================================================
   console.log('🏪 Seeding Customer Directory...');
@@ -585,6 +700,8 @@ async function main() {
       creditLimit: 0.0,
       currentBalance: 0.0,
       defaultDiscountPercentage: 0.0,
+      defaultSalesmanId: null,
+      routeId: null,
     },
     {
       code: 'CUST-001',
@@ -601,6 +718,8 @@ async function main() {
       creditLimit: 250000.0,
       currentBalance: 32400.0,
       defaultDiscountPercentage: 2.5,
+      defaultSalesmanId: salesmen['SM-001'],
+      routeId: salesRoutes['RT-KHI-02'],
     },
     {
       code: 'CUST-002',
@@ -617,6 +736,8 @@ async function main() {
       creditLimit: 600000.0,
       currentBalance: 87500.0,
       defaultDiscountPercentage: 5.0,
+      defaultSalesmanId: salesmen['SM-002'],
+      routeId: salesRoutes['RT-KHI-01'],
     },
     {
       code: 'CUST-003',
@@ -633,6 +754,8 @@ async function main() {
       creditLimit: 1200000.0,
       currentBalance: 164000.0,
       defaultDiscountPercentage: 7.0,
+      defaultSalesmanId: salesmen['SM-001'],
+      routeId: salesRoutes['RT-KHI-02'],
     },
     {
       code: 'CUST-004',
@@ -649,6 +772,8 @@ async function main() {
       creditLimit: 100000.0,
       currentBalance: 12000.0,
       defaultDiscountPercentage: 0.0,
+      defaultSalesmanId: salesmen['SM-001'],
+      routeId: salesRoutes['RT-KHI-01'],
     },
   ];
 
@@ -670,6 +795,8 @@ async function main() {
         creditLimit: c.creditLimit,
         currentBalance: c.currentBalance,
         defaultDiscountPercentage: c.defaultDiscountPercentage,
+        defaultSalesmanId: c.defaultSalesmanId,
+        routeId: c.routeId,
       },
       create: {
         organizationId: org.id,
@@ -687,10 +814,98 @@ async function main() {
         creditLimit: c.creditLimit,
         currentBalance: c.currentBalance,
         defaultDiscountPercentage: c.defaultDiscountPercentage,
+        defaultSalesmanId: c.defaultSalesmanId,
+        routeId: c.routeId,
         isActive: true,
       },
     });
     customers[c.code] = cust.id;
+  }
+
+  // =========================================================================
+  // 9B. CUSTOMER DELIVERY ADDRESSES
+  // =========================================================================
+  console.log('📍 Seeding Customer Delivery Addresses...');
+  const deliveryAddressesList = [
+    {
+      customerCode: 'CUST-001',
+      title: 'Main Branch Pharmacy',
+      recipientName: 'Dr. Tariq Khan',
+      phone: '+92-300-1234567',
+      address: 'Shop # 12, Main Commercial Market, Saddar',
+      city: 'Karachi',
+      routeId: salesRoutes['RT-KHI-01'],
+      deliveryInstructions: 'Delivery at front counter 10am-4pm',
+      isDefault: true,
+      isActive: true,
+    },
+    {
+      customerCode: 'CUST-001',
+      title: 'Warehouse Depot',
+      recipientName: 'Imran Storekeeper',
+      phone: '+92-321-9876543',
+      address: 'Plot 44, Sector 15, Korangi Industrial Area',
+      city: 'Karachi',
+      routeId: salesRoutes['RT-KHI-02'],
+      deliveryInstructions: 'Back gate loading bay 9am-6pm',
+      isDefault: false,
+      isActive: true,
+    },
+    {
+      customerCode: 'CUST-003',
+      title: 'Main Hospital Inpatient Pharmacy',
+      recipientName: 'Dr. Fatima (Chief Pharmacist)',
+      phone: '+92-333-5566778',
+      address: 'National Stadium Road, Inpatient Block A',
+      city: 'Karachi',
+      routeId: salesRoutes['RT-KHI-02'],
+      deliveryInstructions: 'Security clearance required at Gate 2',
+      isDefault: true,
+      isActive: true,
+    },
+    {
+      customerCode: 'CUST-003',
+      title: 'Emergency OPD Dispensary',
+      recipientName: 'Dr. Babar',
+      phone: '+92-333-9988776',
+      address: 'National Stadium Road, Emergency Ground Floor',
+      city: 'Karachi',
+      routeId: salesRoutes['RT-KHI-02'],
+      deliveryInstructions: '24/7 urgent receiving counter',
+      isDefault: false,
+      isActive: true,
+    },
+  ];
+
+  for (const addr of deliveryAddressesList) {
+    const customerId = customers[addr.customerCode];
+    if (customerId) {
+      const existing = await prisma.customerDeliveryAddress.findFirst({
+        where: {
+          organizationId: org.id,
+          customerId,
+          title: addr.title,
+        },
+      });
+
+      if (!existing) {
+        await prisma.customerDeliveryAddress.create({
+          data: {
+            organizationId: org.id,
+            customerId,
+            title: addr.title,
+            recipientName: addr.recipientName,
+            phone: addr.phone,
+            address: addr.address,
+            city: addr.city,
+            routeId: addr.routeId,
+            deliveryInstructions: addr.deliveryInstructions,
+            isDefault: addr.isDefault,
+            isActive: addr.isActive,
+          },
+        });
+      }
+    }
   }
 
   // =========================================================================

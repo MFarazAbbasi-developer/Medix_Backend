@@ -11,6 +11,14 @@ export class QueryCustomerDto {
   @IsOptional()
   customerType?: CustomerType;
 
+  @IsString()
+  @IsOptional()
+  salesmanId?: string;
+
+  @IsString()
+  @IsOptional()
+  routeId?: string;
+
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {

@@ -80,6 +80,14 @@ export class CreateCustomerDto {
   @IsOptional()
   isTaxExempt?: boolean;
 
+  @IsString()
+  @IsOptional()
+  defaultSalesmanId?: string;
+
+  @IsString()
+  @IsOptional()
+  routeId?: string;
+
   @IsNumber()
   @IsOptional()
   @Type(() => Number)

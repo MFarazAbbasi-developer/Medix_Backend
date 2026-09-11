@@ -35,6 +35,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { SalesOperationsModule } from './modules/sales-operations/sales-operations.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -92,6 +93,7 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     SupplierModule,
     PurchasingModule,
     CustomerModule,
+    SalesOperationsModule,
     SalesModule,
     CustomerPaymentModule,
     SalesReturnModule,
