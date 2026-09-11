@@ -376,6 +376,34 @@ export class SalesService {
         throw new NotFoundException(`Associated customer not found`);
       }
 
+      // 2b. Check and lock any linked Delivery Order
+      const [linkedDo] = await tx.$queryRaw<any[]>(
+        Prisma.sql`SELECT id, do_number, status
+                   FROM delivery_orders
+                   WHERE sales_invoice_id = ${invoiceId}
+                   FOR UPDATE`,
+      );
+
+      if (linkedDo) {
+        if (linkedDo.status === 'PARTIALLY_DELIVERED' || linkedDo.status === 'DELIVERED') {
+          throw new BadRequestException(
+            `Cannot cancel sales invoice "${lockedInvoice.invoice_number}" because Delivery Order "${linkedDo.do_number}" has already been ${linkedDo.status.toLowerCase().replace('_', ' ')}. Please process a Sales Return instead.`,
+          );
+        }
+
+        if (linkedDo.status === 'READY') {
+          await tx.deliveryOrder.update({
+            where: { id: linkedDo.id },
+            data: {
+              status: 'CANCELLED',
+              cancelledAt: new Date(),
+              cancelledById: userId || null,
+              cancellationReason: `Cancelled automatically on sales invoice cancellation: ${dto.cancellationReason}`,
+            },
+          });
+        }
+      }
+
       // Fetch invoice items for stock reversal
       const items = await tx.salesInvoiceItem.findMany({
         where: { salesInvoiceId: invoiceId },

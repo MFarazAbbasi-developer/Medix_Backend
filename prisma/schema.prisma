@@ -65,6 +65,9 @@ model User {
   resolvedRecalls           ProductRecall[]       @relation("RecallResolvedBy")
   cancelledRecalls          ProductRecall[]       @relation("RecallCancelledBy")
   createdImportJobs         ImportJob[]           @relation("ImportCreatedBy")
+  createdDeliveryOrders     DeliveryOrder[]       @relation("DeliveryOrderCreatedBy")
+  cancelledDeliveryOrders   DeliveryOrder[]       @relation("DeliveryOrderCancelledBy")
+  fulfilledDeliveries       DeliveryFulfillment[] @relation("DeliveryFulfillmentBy")
 
   @@map("users")
 }
@@ -145,6 +148,7 @@ enum DocumentType {
   STOCK_ADJUSTMENT
   STOCK_TRANSFER
   PRODUCT_RECALL
+  DELIVERY_ORDER
 }
 
 enum SettingDataType {
@@ -203,6 +207,8 @@ model Organization {
   salesmen              Salesman[]
   salesRoutes           SalesRoute[]
   customerDeliveryAddresses CustomerDeliveryAddress[]
+  deliveryOrders        DeliveryOrder[]
+  deliveryFulfillments  DeliveryFulfillment[]
 
   @@map("organizations")
 }
@@ -240,6 +246,7 @@ model Branch {
   importJobs            ImportJob[]
   salesmen              Salesman[]
   salesRoutes           SalesRoute[]
+  deliveryOrders        DeliveryOrder[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -403,6 +410,7 @@ model Product {
   bonusPromotionalSchemes PromotionalScheme[]    @relation("SchemeBonusProduct")
   stockTransferItems      StockTransferItem[]
   productRecalls          ProductRecall[]
+  deliveryOrderItems      DeliveryOrderItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
@@ -435,6 +443,7 @@ model Batch {
   purchaseReturnItems   PurchaseReturnItem[]
   stockTransferItems    StockTransferItem[]
   productRecalls        ProductRecall[]
+  deliveryOrderItems    DeliveryOrderItem[]
 
   @@unique([productId, batchNumber])
   @@index([productId, expiryDate])
@@ -471,6 +480,7 @@ model Warehouse {
   purchaseReturnItems       PurchaseReturnItem[]
   sourceStockTransfers      StockTransfer[]      @relation("SourceStockTransfers")
   destinationStockTransfers StockTransfer[]      @relation("DestinationStockTransfers")
+  deliveryOrders            DeliveryOrder[]
 
   @@unique([branchId, code])
   @@map("warehouses")
@@ -1004,6 +1014,7 @@ model Customer {
   salesReturns       SalesReturn[]
   promotionalSchemes PromotionalScheme[]
   deliveryAddresses  CustomerDeliveryAddress[]
+  deliveryOrders     DeliveryOrder[]
 
   @@unique([organizationId, code])
   @@index([organizationId, name])
@@ -1033,6 +1044,7 @@ model Salesman {
   routes              SalesmanRoute[]
   defaultForCustomers Customer[]
   salesInvoices       SalesInvoice[]
+  deliveryOrders      DeliveryOrder[]
 
   @@unique([organizationId, code])
   @@index([organizationId, branchId])
@@ -1061,6 +1073,7 @@ model SalesRoute {
   customers         Customer[]
   salesInvoices     SalesInvoice[]
   deliveryAddresses CustomerDeliveryAddress[]
+  deliveryOrders    DeliveryOrder[]
 
   @@unique([organizationId, code])
   @@index([organizationId, branchId])
@@ -1305,6 +1318,7 @@ model SalesInvoice {
   ledgerEntries      CustomerLedgerEntry[]
   paymentAllocations CustomerPaymentAllocation[]
   salesReturns       SalesReturn[]
+  deliveryOrder      DeliveryOrder?
 
   @@unique([organizationId, invoiceNumber])
   @@index([organizationId, branchId, invoiceDate])
@@ -1350,6 +1364,7 @@ model SalesInvoiceItem {
   product          Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
   batch            Batch             @relation(fields: [batchId], references: [id], onDelete: Restrict)
   salesReturnItems SalesReturnItem[]
+  deliveryOrderItems DeliveryOrderItem[]
 
   @@index([salesInvoiceId])
   @@index([productId, batchId])
@@ -1728,4 +1743,148 @@ model ImportJob {
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
   @@map("import_jobs")
+}
+
+// -----------------------------------------------------------------------------
+// DELIVERY ORDERS & PARTIAL FULFILLMENT MODELS (Phase 20C)
+// -----------------------------------------------------------------------------
+
+enum DeliveryOrderStatus {
+  READY
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+/// Delivery Order model (Operational fulfillment record linked to a posted Sales Invoice)
+/// NEVER creates StockMovement, modifies inventory, or affects customer/supplier ledgers.
+model DeliveryOrder {
+  id                   String              @id @default(uuid())
+  organizationId       String              @map("organization_id")
+  branchId             String              @map("branch_id")
+  warehouseId          String              @map("warehouse_id")
+  salesInvoiceId       String              @unique @map("sales_invoice_id")
+  doNumber             String              @map("do_number")
+  status               DeliveryOrderStatus @default(READY)
+  customerId           String              @map("customer_id")
+
+  // Historical immutable snapshots copied directly from the posted SalesInvoice:
+  invoiceNumber        String              @map("invoice_number")
+  invoiceDate          DateTime            @map("invoice_date")
+  customerName         String              @map("customer_name")
+  customerCode         String              @map("customer_code")
+  deliveryAddressId    String?             @map("delivery_address_id")
+  deliveryTitle        String?             @map("delivery_title")
+  deliveryRecipient    String?             @map("delivery_recipient")
+  deliveryPhone        String?             @map("delivery_phone")
+  deliveryAddress      String?             @map("delivery_address")
+  deliveryCity         String?             @map("delivery_city")
+  deliveryInstructions String?             @map("delivery_instructions")
+  salesmanId           String?             @map("salesman_id")
+  salesmanName         String?             @map("salesman_name")
+  salesmanCode         String?             @map("salesman_code")
+  routeId              String?             @map("route_id")
+  routeName            String?             @map("route_name")
+  routeCode            String?             @map("route_code")
+
+  notes                String?
+  createdById          String?             @map("created_by_id")
+  cancelledById        String?             @map("cancelled_by_id")
+  cancelledAt          DateTime?           @map("cancelled_at")
+  cancellationReason   String?             @map("cancellation_reason")
+
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  salesInvoice    SalesInvoice        @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
+  customer        Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesman        Salesman?           @relation(fields: [salesmanId], references: [id], onDelete: SetNull)
+  route           SalesRoute?         @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  createdByUser   User?               @relation("DeliveryOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  cancelledByUser User?               @relation("DeliveryOrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  items           DeliveryOrderItem[]
+  fulfillments    DeliveryFulfillment[]
+
+  @@unique([organizationId, doNumber])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, customerId])
+  @@index([organizationId, routeId])
+  @@index([organizationId, salesmanId])
+  @@index([salesInvoiceId])
+  @@map("delivery_orders")
+}
+
+/// Delivery Order Item Line (Historical snapshot of dispensed batch & fulfillment tracking)
+model DeliveryOrderItem {
+  id                      String   @id @default(uuid())
+  deliveryOrderId         String   @map("delivery_order_id")
+  salesInvoiceItemId      String   @map("sales_invoice_item_id")
+  productId               String   @map("product_id")
+  batchId                 String   @map("batch_id")
+  batchNumber             String   @map("batch_number")
+  expiryDate              DateTime @map("expiry_date")
+
+  // Product & packaging snapshots
+  productName             String   @map("product_name")
+  productSku              String   @map("product_sku")
+  genericName             String?  @map("generic_name")
+  unitOfMeasurement       String?  @map("unit_of_measurement")
+  packSize                String?  @map("pack_size")
+
+  // Quantities (only separate billed and bonus persisted; totals/pending dynamically computed)
+  orderedBilledQuantity   Int      @map("ordered_billed_quantity")
+  orderedBonusQuantity    Int      @default(0) @map("ordered_bonus_quantity")
+  deliveredBilledQuantity Int      @default(0) @map("delivered_billed_quantity")
+  deliveredBonusQuantity  Int      @default(0) @map("delivered_bonus_quantity")
+
+  deliveryOrder           DeliveryOrder           @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
+  salesInvoiceItem        SalesInvoiceItem        @relation(fields: [salesInvoiceItemId], references: [id], onDelete: Restrict)
+  product                 Product                 @relation(fields: [productId], references: [id], onDelete: Restrict)
+  batch                   Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  fulfillmentItems        DeliveryFulfillmentItem[]
+
+  @@index([deliveryOrderId])
+  @@index([salesInvoiceItemId])
+  @@map("delivery_order_items")
+}
+
+/// Delivery Fulfillment Event (Multiple fulfillment disbursements per DO)
+model DeliveryFulfillment {
+  id                String                    @id @default(uuid())
+  organizationId    String                    @map("organization_id")
+  deliveryOrderId   String                    @map("delivery_order_id")
+  fulfillmentNumber Int                       @map("fulfillment_number")
+  fulfilledAt       DateTime                  @default(now()) @map("fulfilled_at")
+  fulfilledById     String?                   @map("fulfilled_by_id")
+  notes             String?
+  createdAt         DateTime                  @default(now()) @map("created_at")
+
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  deliveryOrder     DeliveryOrder             @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
+  fulfilledByUser   User?                     @relation("DeliveryFulfillmentBy", fields: [fulfilledById], references: [id], onDelete: SetNull)
+  items             DeliveryFulfillmentItem[]
+
+  @@index([deliveryOrderId])
+  @@index([organizationId])
+  @@map("delivery_fulfillments")
+}
+
+/// Delivery Fulfillment Item (Itemized quantities dispatched during a fulfillment event)
+model DeliveryFulfillmentItem {
+  id                      String              @id @default(uuid())
+  fulfillmentId           String              @map("fulfillment_id")
+  deliveryOrderItemId     String              @map("delivery_order_item_id")
+  deliveredBilledQuantity Int                 @map("delivered_billed_quantity")
+  deliveredBonusQuantity  Int                 @default(0) @map("delivered_bonus_quantity")
+
+  fulfillment             DeliveryFulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+  deliveryOrderItem       DeliveryOrderItem   @relation(fields: [deliveryOrderItemId], references: [id], onDelete: Cascade)
+
+  @@index([fulfillmentId])
+  @@index([deliveryOrderItemId])
+  @@map("delivery_fulfillment_items")
 }

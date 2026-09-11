@@ -199,6 +199,9 @@ describe('SalesService', () => {
       customerLedgerEntry: {
         create: vi.fn().mockResolvedValue({ id: 'cle-1' }),
       },
+      deliveryOrder: {
+        update: vi.fn().mockResolvedValue({ id: 'do-1', status: 'CANCELLED' }),
+      },
       $queryRaw: vi.fn().mockImplementation((query) => {
         const text = typeof query === 'string' ? query : query?.strings?.join(' ') || '';
         if (text.includes('customers')) {
@@ -632,5 +635,156 @@ describe('SalesService', () => {
       );
     });
   });
+
+  describe('Sales Invoice Cancellation with Delivery Orders', () => {
+    it('cancels sales invoice normally when no Delivery Order is linked', async () => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
+        const text = typeof query === 'string' ? query : query?.strings?.join(' ') || '';
+        if (text.includes('FROM sales_invoices')) {
+          return [{
+            id: 'inv-1',
+            status: 'POSTED',
+            customer_id: 'cust-1',
+            branch_id: 'branch-1',
+            warehouse_id: 'wh-1',
+            invoice_number: 'INV-00001',
+            net_total: new Decimal('480.00'),
+            paid_amount: new Decimal('480.00'),
+            balance_amount: new Decimal('0.00'),
+          }];
+        }
+        if (text.includes('FROM customers')) {
+          return [mockCustomer];
+        }
+        if (text.includes('FROM delivery_orders')) {
+          return []; // No linked DO
+        }
+        return [];
+      });
+
+      await service.cancelSalesInvoice(
+        'inv-1',
+        'user-1',
+        { cancellationReason: 'Customer return request' },
+      );
+
+      expect(prisma.salesInvoice.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'inv-1' },
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        }),
+      );
+      expect(prisma.deliveryOrder.update).not.toHaveBeenCalled();
+    });
+
+    it('automatically cancels a READY Delivery Order when invoice is cancelled', async () => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
+        const text = typeof query === 'string' ? query : query?.strings?.join(' ') || '';
+        if (text.includes('FROM sales_invoices')) {
+          return [{
+            id: 'inv-1',
+            status: 'POSTED',
+            customer_id: 'cust-1',
+            branch_id: 'branch-1',
+            warehouse_id: 'wh-1',
+            invoice_number: 'INV-00001',
+            net_total: new Decimal('480.00'),
+            paid_amount: new Decimal('480.00'),
+            balance_amount: new Decimal('0.00'),
+          }];
+        }
+        if (text.includes('FROM customers')) {
+          return [mockCustomer];
+        }
+        if (text.includes('FROM delivery_orders')) {
+          return [{ id: 'do-1', do_number: 'DO-00001', status: 'READY' }];
+        }
+        return [];
+      });
+
+      await service.cancelSalesInvoice(
+        'inv-1',
+        'user-1',
+        { cancellationReason: 'Customer return request' },
+      );
+
+      expect(prisma.deliveryOrder.update).toHaveBeenCalledWith({
+        where: { id: 'do-1' },
+        data: expect.objectContaining({
+          status: 'CANCELLED',
+          cancelledById: 'user-1',
+        }),
+      });
+    });
+
+    it('blocks invoice cancellation when Delivery Order is PARTIALLY_DELIVERED', async () => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
+        const text = typeof query === 'string' ? query : query?.strings?.join(' ') || '';
+        if (text.includes('FROM sales_invoices')) {
+          return [{
+            id: 'inv-1',
+            status: 'POSTED',
+            customer_id: 'cust-1',
+            branch_id: 'branch-1',
+            warehouse_id: 'wh-1',
+            invoice_number: 'INV-00001',
+            net_total: new Decimal('480.00'),
+            paid_amount: new Decimal('480.00'),
+            balance_amount: new Decimal('0.00'),
+          }];
+        }
+        if (text.includes('FROM customers')) {
+          return [mockCustomer];
+        }
+        if (text.includes('FROM delivery_orders')) {
+          return [{ id: 'do-1', do_number: 'DO-00001', status: 'PARTIALLY_DELIVERED' }];
+        }
+        return [];
+      });
+
+      await expect(
+        service.cancelSalesInvoice(
+          'inv-1',
+          'user-1',
+          { cancellationReason: 'Test' },
+        ),
+      ).rejects.toThrow('Cannot cancel sales invoice "INV-00001" because Delivery Order "DO-00001" has already been partially delivered. Please process a Sales Return instead.');
+    });
+
+    it('blocks invoice cancellation when Delivery Order is DELIVERED', async () => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
+        const text = typeof query === 'string' ? query : query?.strings?.join(' ') || '';
+        if (text.includes('FROM sales_invoices')) {
+          return [{
+            id: 'inv-1',
+            status: 'POSTED',
+            customer_id: 'cust-1',
+            branch_id: 'branch-1',
+            warehouse_id: 'wh-1',
+            invoice_number: 'INV-00001',
+            net_total: new Decimal('480.00'),
+            paid_amount: new Decimal('480.00'),
+            balance_amount: new Decimal('0.00'),
+          }];
+        }
+        if (text.includes('FROM customers')) {
+          return [mockCustomer];
+        }
+        if (text.includes('FROM delivery_orders')) {
+          return [{ id: 'do-1', do_number: 'DO-00001', status: 'DELIVERED' }];
+        }
+        return [];
+      });
+
+      await expect(
+        service.cancelSalesInvoice(
+          'inv-1',
+          'user-1',
+          { cancellationReason: 'Test' },
+        ),
+      ).rejects.toThrow('Cannot cancel sales invoice "INV-00001" because Delivery Order "DO-00001" has already been delivered. Please process a Sales Return instead.');
+    });
+  });
 });
+
 

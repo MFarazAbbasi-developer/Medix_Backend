@@ -173,6 +173,7 @@ async function main() {
     { documentType: DocumentType.STOCK_ADJUSTMENT, prefix: 'ADJ-', padding: 5 },
     { documentType: DocumentType.STOCK_TRANSFER, prefix: 'TRF-', padding: 5 },
     { documentType: DocumentType.PRODUCT_RECALL, prefix: 'RCL-', padding: 5 },
+    { documentType: DocumentType.DELIVERY_ORDER, prefix: 'DO-', padding: 5 },
   ];
 
   for (const item of defaultSeriesList) {
@@ -268,6 +269,10 @@ async function main() {
     { code: 'sales.salesmen.manage', description: 'Create, update, activate/deactivate salesmen and assign routes' },
     { code: 'sales.routes.view', description: 'View sales routes and territories' },
     { code: 'sales.routes.manage', description: 'Create, update, activate/deactivate sales routes' },
+    { code: 'delivery_orders.view', description: 'View delivery orders and fulfillment history' },
+    { code: 'delivery_orders.create', description: 'Create delivery orders from posted sales invoices' },
+    { code: 'delivery_orders.fulfill', description: 'Record partial and full fulfillment events on delivery orders' },
+    { code: 'delivery_orders.cancel', description: 'Cancel unfulfilled delivery orders' },
   ];
 
   for (const p of permissionsList) {
@@ -315,6 +320,7 @@ async function main() {
     'sales.view', 'sales.create', 'sales.post',
     'sales.salesmen.view', 'sales.salesmen.manage',
     'sales.routes.view', 'sales.routes.manage',
+    'delivery_orders.view', 'delivery_orders.create', 'delivery_orders.fulfill', 'delivery_orders.cancel',
     'returns.view', 'returns.manage',
     'expiry.view', 'expiry.quarantine', 'recalls.manage',
     'reports.view', 'reports.export', 'masterdata.manage',

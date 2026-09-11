@@ -334,6 +334,24 @@ export const INITIAL_PERMISSIONS = [
     code: 'imports.manage',
     description: 'Upload files, confirm/execute data imports, and cancel jobs',
   },
+
+  // Delivery Orders & Fulfillment (Phase 20C)
+  {
+    code: 'delivery_orders.view',
+    description: 'View delivery orders and fulfillment history',
+  },
+  {
+    code: 'delivery_orders.create',
+    description: 'Create delivery orders from posted sales invoices',
+  },
+  {
+    code: 'delivery_orders.fulfill',
+    description: 'Record partial and full fulfillment events on delivery orders',
+  },
+  {
+    code: 'delivery_orders.cancel',
+    description: 'Cancel unfulfilled delivery orders',
+  },
 ] as const;
 
 export const PERMISSIONS_KEY = 'permissions';
