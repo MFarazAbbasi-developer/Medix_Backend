@@ -207,6 +207,32 @@ export const INITIAL_PERMISSIONS = [
     description: 'Receive customer payments and record collections',
   },
 
+  // Post-Dated Cheques (PDC - Phase 20E)
+  {
+    code: 'payments.pdc.view',
+    description: 'View post-dated cheque register, status history, and custody receipts',
+  },
+  {
+    code: 'payments.pdc.create',
+    description: 'Receive and register post-dated cheques with pre-allocation intent',
+  },
+  {
+    code: 'payments.pdc.deposit',
+    description: 'Record bank deposit details for post-dated cheques',
+  },
+  {
+    code: 'payments.pdc.clear',
+    description: 'Execute bank clearance and generate authoritative customer payment receipt',
+  },
+  {
+    code: 'payments.pdc.bounce',
+    description: 'Mark post-dated cheques as bounced/dishonored by bank',
+  },
+  {
+    code: 'payments.pdc.cancel',
+    description: 'Cancel or return post-dated cheques to customer prior to clearance',
+  },
+
   // Sales Returns
   {
     code: 'returns.view',

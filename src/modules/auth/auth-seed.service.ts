@@ -95,6 +95,7 @@ export class AuthSeedService implements OnApplicationBootstrap {
       { documentType: 'PRODUCT_RECALL' as const, prefix: 'RCL-', padding: 5 },
       { documentType: 'DELIVERY_ORDER' as const, prefix: 'DO-', padding: 5 },
       { documentType: 'DELIVERY_CHALLAN' as const, prefix: 'DC-', padding: 5 },
+      { documentType: 'PDC' as const, prefix: 'PDC-', padding: 5 },
     ];
 
     for (const item of defaultSeriesList) {

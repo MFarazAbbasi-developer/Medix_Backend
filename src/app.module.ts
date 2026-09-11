@@ -37,6 +37,7 @@ import { ImportsModule } from './modules/imports/imports.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { SalesOperationsModule } from './modules/sales-operations/sales-operations.module';
 import { DeliveryOrdersModule } from './modules/delivery-orders/delivery-orders.module';
+import { PdcModule } from './modules/pdc/pdc.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CORRELATION_ID_HEADER } from './common/constants';
 
@@ -99,6 +100,7 @@ import { CORRELATION_ID_HEADER } from './common/constants';
     CustomerPaymentModule,
     SalesReturnModule,
     DeliveryOrdersModule,
+    PdcModule,
     SupplierPaymentModule,
     PurchaseReturnModule,
     PricingModule,
