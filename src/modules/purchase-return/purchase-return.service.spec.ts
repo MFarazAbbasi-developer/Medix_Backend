@@ -320,7 +320,7 @@ describe('PurchaseReturnService (Phase 20H Lifecycle & RGA)', () => {
 
   describe('completePurchaseReturn', () => {
     it('should post supplier ledger DEBIT_NOTE and update GRN balance', async () => {
-      prisma.$queryRaw.mockImplementation((query) => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
         const queryStr = query.strings ? query.strings.join(' ') : String(query);
         if (queryStr.includes('FROM purchase_returns')) {
           return Promise.resolve([{ ...mockDraftReturn, status: PurchaseReturnStatus.DISPATCHED }]);
@@ -359,7 +359,7 @@ describe('PurchaseReturnService (Phase 20H Lifecycle & RGA)', () => {
 
   describe('cancelPurchaseReturn', () => {
     it('should re-inject stock on cancellation of a DISPATCHED return', async () => {
-      prisma.$queryRaw.mockImplementation((query) => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
         const queryStr = query.strings ? query.strings.join(' ') : String(query);
         if (queryStr.includes('FROM purchase_returns')) {
           return Promise.resolve([{ ...mockDraftReturn, status: PurchaseReturnStatus.DISPATCHED }]);

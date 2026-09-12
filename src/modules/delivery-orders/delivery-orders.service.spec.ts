@@ -640,7 +640,7 @@ describe('DeliveryOrdersService', () => {
     };
 
     it('generates sequential DC-xxxxx challan number atomically inside tx during fulfillment', async () => {
-      prisma.$queryRaw.mockImplementation((query) => {
+      prisma.$queryRaw.mockImplementation((query: any) => {
         const sql = query.text || query.strings?.join(' ') || '';
         if (sql.includes('FROM delivery_orders')) {
           return Promise.resolve([
