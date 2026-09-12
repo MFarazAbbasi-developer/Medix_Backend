@@ -18,7 +18,9 @@ import {
   CustomerLedgerEntryType,
   StockMovementType,
   ReturnedStockCondition,
+  ReturnStockDisposition,
   ReturnRefundMode,
+  TillSessionStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -299,6 +301,7 @@ export class SalesReturnService {
           bonusReturnedQuantity: number;
           totalReturnedQuantity: number;
           stockCondition: ReturnedStockCondition;
+          disposition: ReturnStockDisposition;
           unitCost: number;
           unitPrice: number;
           discountPercentage: number;
@@ -344,24 +347,39 @@ export class SalesReturnService {
             );
           }
 
-          // Invariant: SALEABLE -> STANDARD warehouse, QUARANTINED -> QUARANTINE warehouse
-          if (lineDto.stockCondition === ReturnedStockCondition.SALEABLE) {
+          // Resolve disposition & condition
+          const disposition = lineDto.disposition || (
+            lineDto.stockCondition === ReturnedStockCondition.QUARANTINED
+              ? ReturnStockDisposition.QUARANTINE
+              : ReturnStockDisposition.RESTOCK_SALEABLE
+          );
+
+          const stockCondition = disposition === ReturnStockDisposition.RESTOCK_SALEABLE
+            ? ReturnedStockCondition.SALEABLE
+            : ReturnedStockCondition.QUARANTINED;
+
+          // Invariant: RESTOCK_SALEABLE -> STANDARD warehouse (active, non-expired batch)
+          if (disposition === ReturnStockDisposition.RESTOCK_SALEABLE) {
             if (destWarehouse.warehouseType !== 'STANDARD') {
               throw new BadRequestException(
-                `Stock in condition SALEABLE must be restocked into a STANDARD warehouse. Selected warehouse "${destWarehouse.name}" is of type ${destWarehouse.warehouseType}`,
+                `Stock with disposition RESTOCK_SALEABLE must be restocked into a STANDARD warehouse. Selected warehouse "${destWarehouse.name}" is of type ${destWarehouse.warehouseType}`,
               );
             }
 
             const isExpired = new Date(invItem.expiryDate) <= now;
-            if (isExpired || invItem.batch?.status !== 'ACTIVE') {
+            const isBatchActive = invItem.batch?.status === 'ACTIVE';
+            if (isExpired || !isBatchActive) {
               throw new BadRequestException(
-                `Batch "${invItem.batchNumber}" is expired or inactive and CANNOT be returned as SALEABLE. It must be marked as QUARANTINED.`,
+                `Batch "${invItem.batchNumber}" is expired, recalled, or inactive and CANNOT be returned as RESTOCK_SALEABLE. Disposition must be set to QUARANTINE or RETURN_TO_SUPPLIER.`,
               );
             }
-          } else if (lineDto.stockCondition === ReturnedStockCondition.QUARANTINED) {
+          } else if (
+            disposition === ReturnStockDisposition.QUARANTINE ||
+            disposition === ReturnStockDisposition.RETURN_TO_SUPPLIER
+          ) {
             if (destWarehouse.warehouseType !== 'QUARANTINE') {
               throw new BadRequestException(
-                `Stock in condition QUARANTINED must be restocked into a QUARANTINE warehouse. Selected warehouse "${destWarehouse.name}" is of type ${destWarehouse.warehouseType}`,
+                `Stock with disposition "${disposition}" must be restocked into a QUARANTINE warehouse. Selected warehouse "${destWarehouse.name}" is of type ${destWarehouse.warehouseType}`,
               );
             }
           }
@@ -398,7 +416,8 @@ export class SalesReturnService {
             returnedQuantity: lineDto.returnedQuantity,
             bonusReturnedQuantity: bonusQty,
             totalReturnedQuantity: totalReturnedQty,
-            stockCondition: lineDto.stockCondition,
+            stockCondition,
+            disposition,
             unitCost,
             unitPrice,
             discountPercentage: discPct,
@@ -458,8 +477,39 @@ export class SalesReturnService {
         const numberResult = await this.numbering.generateNextNumber(
           DocumentType.SALES_RETURN,
           branchId,
+          tx,
         );
         const returnNumber = numberResult.documentNumber;
+
+        // 6b. Enforce active OPEN till session for physical CASH refunds
+        let activeTillSessionId: string | null = null;
+        if (
+          dto.refundMode === ReturnRefundMode.CASH_REFUND &&
+          actualRefundAmount > 0
+        ) {
+          if (!userId) {
+            throw new BadRequestException(
+              'Cashier user identification is required to disburse physical cash refunds.',
+            );
+          }
+
+          const activeSession = await tx.tillSession.findFirst({
+            where: {
+              organizationId,
+              branchId,
+              userId,
+              status: TillSessionStatus.OPEN,
+            },
+          });
+
+          if (!activeSession) {
+            throw new BadRequestException(
+              'An active open cash till session is required to disburse physical cash refunds. Please open a till session first.',
+            );
+          }
+
+          activeTillSessionId = activeSession.id;
+        }
 
         // 7. Create SalesReturn Header
         const salesReturn = await tx.salesReturn.create({
@@ -468,6 +518,7 @@ export class SalesReturnService {
             branchId,
             customerId: lockedCustomer.id,
             salesInvoiceId: lockedInvoice.id,
+            tillSessionId: activeTillSessionId,
             returnNumber,
             returnDate: dto.returnDate ? new Date(dto.returnDate) : new Date(),
             status: SalesReturnStatus.POSTED,
@@ -500,6 +551,7 @@ export class SalesReturnService {
               bonusReturnedQuantity: line.bonusReturnedQuantity,
               totalReturnedQuantity: line.totalReturnedQuantity,
               stockCondition: line.stockCondition,
+              disposition: line.disposition,
               unitCost: new Prisma.Decimal(line.unitCost),
               unitPrice: new Prisma.Decimal(line.unitPrice),
               discountPercentage: new Prisma.Decimal(line.discountPercentage),

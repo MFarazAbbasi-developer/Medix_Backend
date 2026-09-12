@@ -94,6 +94,9 @@ describe('CustomerPaymentService', () => {
       customerLedgerEntry: {
         create: vi.fn().mockResolvedValue({ id: 'cle-1' }),
       },
+      tillSession: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'till-session-1', status: 'OPEN' }),
+      },
       $queryRaw: vi.fn().mockImplementation((query: any) => {
         const text =
           typeof query === 'string'
@@ -144,6 +147,7 @@ describe('CustomerPaymentService', () => {
       expect(numberingService.generateNextNumber).toHaveBeenCalledWith(
         DocumentType.PAYMENT_RECEIPT,
         'branch-1',
+        expect.anything(),
       );
       expect(prisma.salesInvoice.update).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -96,6 +96,7 @@ export class AuthSeedService implements OnApplicationBootstrap {
       { documentType: 'DELIVERY_ORDER' as const, prefix: 'DO-', padding: 5 },
       { documentType: 'DELIVERY_CHALLAN' as const, prefix: 'DC-', padding: 5 },
       { documentType: 'PDC' as const, prefix: 'PDC-', padding: 5 },
+      { documentType: 'TILL_SESSION' as const, prefix: 'CS-', padding: 5 },
     ];
 
     for (const item of defaultSeriesList) {
@@ -187,6 +188,48 @@ export class AuthSeedService implements OnApplicationBootstrap {
         dataType: 'STRING' as const,
         group: 'SALES',
         description: 'Default pricing base for sales lines (TP = Regulated Trade Price, MRP = Max Retail Price)',
+      },
+      {
+        key: 'CASH_VARIANCE_APPROVAL_THRESHOLD',
+        value: '500',
+        dataType: 'NUMBER' as const,
+        group: 'SALES',
+        description: 'Maximum cash shortage/excess variance threshold (PKR) allowed without supervisor approval permission',
+      },
+      {
+        key: 'REORDER_DEFAULT_LOOKBACK_DAYS',
+        value: '30',
+        dataType: 'NUMBER' as const,
+        group: 'PURCHASING',
+        description: 'Default sales velocity lookback window in days for replenishment suggestions',
+      },
+      {
+        key: 'REORDER_DEFAULT_LEAD_TIME_DAYS',
+        value: '7',
+        dataType: 'NUMBER' as const,
+        group: 'PURCHASING',
+        description: 'Default supplier fulfillment lead time in days for replenishment calculations',
+      },
+      {
+        key: 'REORDER_DEFAULT_SAFETY_STOCK_DAYS',
+        value: '7',
+        dataType: 'NUMBER' as const,
+        group: 'PURCHASING',
+        description: 'Default safety buffer days of sales for reorder point determination',
+      },
+      {
+        key: 'REORDER_DEFAULT_TARGET_STOCK_DAYS',
+        value: '30',
+        dataType: 'NUMBER' as const,
+        group: 'PURCHASING',
+        description: 'Default target stock coverage horizon in days for maximum stock determination',
+      },
+      {
+        key: 'REORDER_SHORT_EXPIRY_THRESHOLD_DAYS',
+        value: '90',
+        dataType: 'NUMBER' as const,
+        group: 'PURCHASING',
+        description: 'Default threshold in days for short-expiry stock segregation',
       },
     ];
 

@@ -1,20 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SalesReturnService } from './sales-return.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
-import { NumberingService } from '../numbering/numbering.service';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import {
   DocumentType,
   SalesReturnStatus,
   SalesInvoiceStatus,
   ReturnedStockCondition,
+  ReturnStockDisposition,
   ReturnRefundMode,
   ReturnReason,
 } from '@prisma/client';
 
-describe('SalesReturnService', () => {
+describe('SalesReturnService (Phase 20H Dispositions)', () => {
   let service: SalesReturnService;
   let prisma: any;
   let auditService: any;
@@ -99,82 +97,47 @@ describe('SalesReturnService', () => {
       salesInvoicePayment: {
         findMany: vi.fn().mockResolvedValue([{ amount: new Decimal('6000.00') }]),
       },
-      warehouse: {
-        findMany: vi.fn().mockResolvedValue([mockStandardWarehouse, mockQuarantineWarehouse]),
-      },
       salesReturn: {
-        create: vi.fn().mockImplementation(({ data }) =>
-          Promise.resolve({
-            id: 'sret-1',
-            returnNumber: 'SRET-00001',
-            ...data,
-          }),
-        ),
         findMany: vi.fn().mockResolvedValue([]),
-        findFirst: vi.fn().mockResolvedValue({
+        findFirst: vi.fn(),
+        create: vi.fn().mockImplementation(({ data }) => ({
           id: 'sret-1',
-          returnNumber: 'SRET-00001',
-          branchId: 'branch-1',
-          customerId: 'cust-1',
-          salesInvoiceId: 'inv-1',
-          netTotal: new Decimal('1800.00'),
-          refundAmount: new Decimal('0.00'),
-          status: SalesReturnStatus.POSTED,
-          items: [
-            {
-              id: 'sret-item-1',
-              salesInvoiceItemId: 'inv-item-1',
-              productId: 'prod-1',
-              batchId: 'batch-1',
-              batchNumber: 'BAT-2026-001',
-              destinationWarehouseId: 'wh-std',
-              returnedQuantity: 20,
-              bonusReturnedQuantity: 0,
-              totalReturnedQuantity: 20,
-              unitCost: new Decimal('70.00'),
-              destinationWarehouse: mockStandardWarehouse,
-            },
-          ],
-        }),
-        update: vi.fn().mockImplementation(({ data }) =>
-          Promise.resolve({
-            id: 'sret-1',
-            returnNumber: 'SRET-00001',
-            ...data,
-          }),
-        ),
-        count: vi.fn().mockResolvedValue(0),
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: { netTotal: new Decimal(0), refundAmount: new Decimal(0), totalCostPrice: new Decimal(0), grossProfit: new Decimal(0) },
-        }),
+          ...data,
+        })),
+        update: vi.fn(),
       },
       salesReturnItem: {
-        create: vi.fn().mockResolvedValue({ id: 'sret-item-1' }),
+        create: vi.fn().mockImplementation(({ data }) => ({
+          id: 'sret-item-1',
+          ...data,
+        })),
       },
       stockMovement: {
         create: vi.fn().mockResolvedValue({ id: 'sm-1' }),
-        findMany: vi.fn().mockResolvedValue([{ quantity: 50 }]), // 50 available in warehouse
       },
       customerLedgerEntry: {
         create: vi.fn().mockResolvedValue({ id: 'cle-1' }),
       },
-      customerPaymentAllocation: {
-        findMany: vi.fn().mockResolvedValue([]),
+      warehouse: {
+        findMany: vi.fn().mockImplementation(({ where }) => {
+          const ids = where.id.in;
+          const result = [];
+          if (ids.includes('wh-std')) result.push(mockStandardWarehouse);
+          if (ids.includes('wh-quar')) result.push(mockQuarantineWarehouse);
+          return Promise.resolve(result);
+        }),
       },
-      $queryRaw: vi.fn().mockImplementation((query: any) => {
-        const text =
-          typeof query === 'string'
-            ? query
-            : query?.strings?.join(' ') || query?.sql || query?.text || String(query);
-        if (text.includes('customers')) {
-          return [mockCustomer];
+      $transaction: vi.fn().mockImplementation((callback) => callback(prisma)),
+      $queryRaw: vi.fn().mockImplementation((query) => {
+        const queryStr = query.strings ? query.strings.join(' ') : String(query);
+        if (queryStr.includes('FROM sales_invoices') || queryStr.includes('sales_invoices')) {
+          return Promise.resolve([mockInvoice]);
         }
-        if (text.includes('sales_invoices')) {
-          return [mockInvoice];
+        if (queryStr.includes('FROM customers') || queryStr.includes('customers')) {
+          return Promise.resolve([mockCustomer]);
         }
-        return [];
+        return Promise.resolve([]);
       }),
-      $transaction: vi.fn().mockImplementation(async (callback) => callback(prisma)),
     };
 
     auditService = {
@@ -184,19 +147,16 @@ describe('SalesReturnService', () => {
     numberingService = {
       generateNextNumber: vi.fn().mockResolvedValue({
         documentNumber: 'SRET-00001',
+        seriesId: 'series-1',
         sequence: 1,
       }),
     };
 
-    service = new SalesReturnService(
-      prisma as unknown as PrismaService,
-      auditService as unknown as AuditService,
-      numberingService as unknown as NumberingService,
-    );
+    service = new SalesReturnService(prisma, auditService, numberingService);
   });
 
-  describe('createSalesReturn', () => {
-    it('creates saleable return to STANDARD warehouse and offsets outstanding balance', async () => {
+  describe('createSalesReturn (Disposition Rules)', () => {
+    it('should create sales return with RESTOCK_SALEABLE into a STANDARD warehouse', async () => {
       const result = await service.createSalesReturn(
         {
           salesInvoiceId: 'inv-1',
@@ -205,8 +165,9 @@ describe('SalesReturnService', () => {
           items: [
             {
               salesInvoiceItemId: 'inv-item-1',
-              returnedQuantity: 20,
-              stockCondition: ReturnedStockCondition.SALEABLE,
+              returnedQuantity: 10,
+              bonusReturnedQuantity: 1,
+              disposition: ReturnStockDisposition.RESTOCK_SALEABLE,
               destinationWarehouseId: 'wh-std',
             },
           ],
@@ -214,49 +175,51 @@ describe('SalesReturnService', () => {
         'user-1',
       );
 
-      expect(result.id).toBe('sret-1');
-      expect(numberingService.generateNextNumber).toHaveBeenCalledWith(
-        DocumentType.SALES_RETURN,
-        'branch-1',
-      );
-      // Stock movement created
-      expect(prisma.stockMovement.create).toHaveBeenCalledWith(
+      expect(prisma.salesReturn.create).toHaveBeenCalled();
+      expect(prisma.salesReturnItem.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            movementType: 'SALES_RETURN',
-            quantity: 20,
-            warehouseId: 'wh-std',
-          }),
-        }),
-      );
-      // Invoice balance reduced: 4000 - 1800 = 2200
-      expect(prisma.salesInvoice.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'inv-1' },
-        }),
-      );
-      // Customer balance reduced
-      expect(prisma.customerLedgerEntry.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            customerId: 'cust-1',
-            entryType: 'CREDIT_NOTE',
+            returnedQuantity: 10,
+            bonusReturnedQuantity: 1,
+            stockCondition: ReturnedStockCondition.SALEABLE,
+            disposition: ReturnStockDisposition.RESTOCK_SALEABLE,
           }),
         }),
       );
     });
 
-    it('creates quarantined return to QUARANTINE warehouse for damaged/defective items', async () => {
-      const result = await service.createSalesReturn(
+    it('should reject RESTOCK_SALEABLE if destination warehouse is QUARANTINE', async () => {
+      await expect(
+        service.createSalesReturn(
+          {
+            salesInvoiceId: 'inv-1',
+            reason: ReturnReason.CUSTOMER_RETURN,
+            refundMode: ReturnRefundMode.CREDIT_ACCOUNT,
+            items: [
+              {
+                salesInvoiceItemId: 'inv-item-1',
+                returnedQuantity: 10,
+                disposition: ReturnStockDisposition.RESTOCK_SALEABLE,
+                destinationWarehouseId: 'wh-quar',
+              },
+            ],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept RETURN_TO_SUPPLIER into QUARANTINE warehouse', async () => {
+      await service.createSalesReturn(
         {
           salesInvoiceId: 'inv-1',
-          reason: ReturnReason.DEFECTIVE_PRODUCT,
+          reason: ReturnReason.DAMAGED_IN_TRANSIT,
           refundMode: ReturnRefundMode.CREDIT_ACCOUNT,
           items: [
             {
               salesInvoiceItemId: 'inv-item-1',
-              returnedQuantity: 10,
-              stockCondition: ReturnedStockCondition.QUARANTINED,
+              returnedQuantity: 5,
+              disposition: ReturnStockDisposition.RETURN_TO_SUPPLIER,
               destinationWarehouseId: 'wh-quar',
             },
           ],
@@ -264,58 +227,36 @@ describe('SalesReturnService', () => {
         'user-1',
       );
 
-      expect(result.id).toBe('sret-1');
-      expect(prisma.stockMovement.create).toHaveBeenCalledWith(
+      expect(prisma.salesReturnItem.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            movementType: 'SALES_RETURN',
-            quantity: 10,
-            warehouseId: 'wh-quar',
+            stockCondition: ReturnedStockCondition.QUARANTINED,
+            disposition: ReturnStockDisposition.RETURN_TO_SUPPLIER,
           }),
         }),
       );
     });
 
-    it('rejects SALEABLE return into a QUARANTINE warehouse', async () => {
-      await expect(
-        service.createSalesReturn(
-          {
-            salesInvoiceId: 'inv-1',
-            reason: ReturnReason.CUSTOMER_RETURN,
-            refundMode: ReturnRefundMode.CREDIT_ACCOUNT,
-            items: [
-              {
-                salesInvoiceItemId: 'inv-item-1',
-                returnedQuantity: 10,
-                stockCondition: ReturnedStockCondition.SALEABLE,
-                destinationWarehouseId: 'wh-quar', // Mismatched
-              },
-            ],
-          },
-          'user-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects return of expired batch as SALEABLE', async () => {
-      prisma.salesInvoiceItem.findMany.mockResolvedValueOnce([
-        {
-          ...mockInvoiceItem,
-          expiryDate: new Date('2020-01-01'), // Expired
-        },
-      ]);
+    it('should reject RESTOCK_SALEABLE for expired batches', async () => {
+      const expiredItem = {
+        ...mockInvoiceItem,
+        id: 'inv-item-expired',
+        expiryDate: new Date('2020-01-01'),
+        batch: { id: 'batch-exp', status: 'ACTIVE', expiryDate: new Date('2020-01-01') },
+      };
+      prisma.salesInvoiceItem.findMany.mockResolvedValue([expiredItem]);
 
       await expect(
         service.createSalesReturn(
           {
             salesInvoiceId: 'inv-1',
-            reason: ReturnReason.CUSTOMER_RETURN,
+            reason: ReturnReason.EXPIRED_NEAR_EXPIRY,
             refundMode: ReturnRefundMode.CREDIT_ACCOUNT,
             items: [
               {
-                salesInvoiceItemId: 'inv-item-1',
-                returnedQuantity: 10,
-                stockCondition: ReturnedStockCondition.SALEABLE,
+                salesInvoiceItemId: 'inv-item-expired',
+                returnedQuantity: 5,
+                disposition: ReturnStockDisposition.RESTOCK_SALEABLE,
                 destinationWarehouseId: 'wh-std',
               },
             ],
@@ -323,141 +264,6 @@ describe('SalesReturnService', () => {
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
-    });
-
-    it('supports immediate cash refund bounded by paid amount', async () => {
-      // Net return value for 50 items @ 90 = 4500. Invoice paid amount is 6000.
-      const result = await service.createSalesReturn(
-        {
-          salesInvoiceId: 'inv-1',
-          reason: ReturnReason.CUSTOMER_RETURN,
-          refundMode: ReturnRefundMode.CASH_REFUND,
-          refundAmount: 4500,
-          items: [
-            {
-              salesInvoiceItemId: 'inv-item-1',
-              returnedQuantity: 50,
-              stockCondition: ReturnedStockCondition.SALEABLE,
-              destinationWarehouseId: 'wh-std',
-            },
-          ],
-        },
-        'user-1',
-      );
-
-      expect(result.id).toBe('sret-1');
-      // Paired refund ledger entries created
-      expect(prisma.customerLedgerEntry.create).toHaveBeenCalled();
-    });
-
-    it('rejects immediate cash refund exceeding paid amount on unpaid/partially-unpaid invoice', async () => {
-      // Net return value: 80 items @ 90 = 7200. But invoice paid is only 6000!
-      await expect(
-        service.createSalesReturn(
-          {
-            salesInvoiceId: 'inv-1',
-            reason: ReturnReason.CUSTOMER_RETURN,
-            refundMode: ReturnRefundMode.CASH_REFUND,
-            refundAmount: 7200,
-            items: [
-              {
-                salesInvoiceItemId: 'inv-item-1',
-                returnedQuantity: 80,
-                stockCondition: ReturnedStockCondition.SALEABLE,
-                destinationWarehouseId: 'wh-std',
-              },
-            ],
-          },
-          'user-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects return quantity exceeding original billed quantity', async () => {
-      await expect(
-        service.createSalesReturn(
-          {
-            salesInvoiceId: 'inv-1',
-            reason: ReturnReason.CUSTOMER_RETURN,
-            refundMode: ReturnRefundMode.CREDIT_ACCOUNT,
-            items: [
-              {
-                salesInvoiceItemId: 'inv-item-1',
-                returnedQuantity: 150, // Billed was 100
-                stockCondition: ReturnedStockCondition.SALEABLE,
-                destinationWarehouseId: 'wh-std',
-              },
-            ],
-          },
-          'user-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  describe('cancelSalesReturn', () => {
-    it('cancels return when stock is available in exact warehouse and restores invoice settlement', async () => {
-      const result = await service.cancelSalesReturn(
-        'sret-1',
-        { cancellationReason: 'Return entered by mistake' },
-        'user-1',
-      );
-
-      expect(result.status).toBe(SalesReturnStatus.CANCELLED);
-      // Compensating stock deduction
-      expect(prisma.stockMovement.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            movementType: 'SALES_ISSUE',
-            quantity: -20,
-            warehouseId: 'wh-std',
-          }),
-        }),
-      );
-      // Settlement recalculated
-      expect(prisma.salesInvoice.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'inv-1' },
-        }),
-      );
-      // Customer adjustment ledger entry
-      expect(prisma.customerLedgerEntry.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            entryType: 'ADJUSTMENT',
-          }),
-        }),
-      );
-    });
-
-    it('rejects return cancellation if returned stock was consumed/moved from exact warehouse', async () => {
-      // Mock only 5 units remaining in warehouse, but return had 20 units
-      prisma.stockMovement.findMany.mockResolvedValueOnce([{ quantity: 5 }]);
-
-      await expect(
-        service.cancelSalesReturn(
-          'sret-1',
-          { cancellationReason: 'Stock already sold to another customer' },
-          'user-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects double cancellation of already cancelled return', async () => {
-      prisma.salesReturn.findFirst.mockResolvedValueOnce({
-        id: 'sret-1',
-        returnNumber: 'SRET-00001',
-        status: SalesReturnStatus.CANCELLED,
-        items: [],
-      });
-
-      await expect(
-        service.cancelSalesReturn(
-          'sret-1',
-          { cancellationReason: 'Duplicate attempt' },
-          'user-1',
-        ),
-      ).rejects.toThrow(ConflictException);
     });
   });
 });

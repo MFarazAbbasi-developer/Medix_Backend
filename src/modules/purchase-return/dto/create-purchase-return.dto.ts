@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsInt,
-  IsPositive,
   IsEnum,
   IsOptional,
   IsArray,
@@ -15,9 +14,17 @@ import { Type } from 'class-transformer';
 import { ReturnedStockCondition, PurchaseReturnReason } from '@prisma/client';
 
 export class CreatePurchaseReturnItemDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  grnItemId: string;
+  grnItemId?: string;
+
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  batchId?: string;
 
   @IsInt()
   @Min(0)
@@ -37,9 +44,27 @@ export class CreatePurchaseReturnItemDto {
 }
 
 export class CreatePurchaseReturnDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  grnId: string;
+  grnId?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  rgaNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  rgaDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  vendorCreditNoteNumber?: string;
 
   @IsOptional()
   @IsDateString()

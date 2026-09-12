@@ -12,7 +12,12 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ReturnReason, ReturnedStockCondition, ReturnRefundMode } from '@prisma/client';
+import {
+  ReturnReason,
+  ReturnedStockCondition,
+  ReturnStockDisposition,
+  ReturnRefundMode,
+} from '@prisma/client';
 
 export class CreateSalesReturnItemDto {
   @IsString()
@@ -29,8 +34,13 @@ export class CreateSalesReturnItemDto {
   @Min(0)
   bonusReturnedQuantity?: number = 0;
 
+  @IsOptional()
   @IsEnum(ReturnedStockCondition)
-  stockCondition: ReturnedStockCondition;
+  stockCondition?: ReturnedStockCondition;
+
+  @IsOptional()
+  @IsEnum(ReturnStockDisposition)
+  disposition?: ReturnStockDisposition;
 
   @IsString()
   @IsNotEmpty()

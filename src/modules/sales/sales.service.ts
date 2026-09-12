@@ -13,7 +13,7 @@ import { FefoPreviewDto } from './dto/fefo-preview.dto';
 import { QuerySalesInvoiceDto } from './dto/query-sales-invoice.dto';
 import { CancelSalesInvoiceDto } from './dto/cancel-sales-invoice.dto';
 import { PricingEngineService } from '../pricing/pricing-engine.service';
-import { Prisma, DocumentType } from '@prisma/client';
+import { Prisma, DocumentType, TillSessionStatus } from '@prisma/client';
 
 export interface ResolvedLineAllocation {
   productId: string;
@@ -1171,6 +1171,37 @@ export class SalesService {
         });
       }
 
+      // 4b. Enforce active OPEN till session for cash tenders
+      const hasCashPayment = paymentsToCreate.some(
+        (p) => p.paymentMethod === 'CASH' && Number(p.amount) > 0,
+      );
+      let activeTillSessionId: string | null = null;
+
+      if (hasCashPayment) {
+        if (!userId) {
+          throw new BadRequestException(
+            'Cashier user identification is required to process physical cash sales.',
+          );
+        }
+
+        const activeSession = await tx.tillSession.findFirst({
+          where: {
+            organizationId,
+            branchId,
+            userId,
+            status: TillSessionStatus.OPEN,
+          },
+        });
+
+        if (!activeSession) {
+          throw new BadRequestException(
+            'An active open cash till session is required to process physical cash sales. Please open a till session with your opening cash float first.',
+          );
+        }
+
+        activeTillSessionId = activeSession.id;
+      }
+
       const balanceAmount = Math.max(0, netTotal - paidAmount);
       const grossProfit = netTotal - totalTax - totalCostPrice;
 
@@ -1309,6 +1340,7 @@ export class SalesService {
         await tx.salesInvoicePayment.create({
           data: {
             salesInvoiceId: invoice.id,
+            tillSessionId: p.paymentMethod === 'CASH' ? activeTillSessionId : null,
             paymentMethod: p.paymentMethod,
             amount: p.amount,
             referenceNumber: p.referenceNumber,

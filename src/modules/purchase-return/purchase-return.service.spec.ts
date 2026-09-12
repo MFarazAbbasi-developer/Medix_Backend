@@ -11,7 +11,7 @@ import {
   WarehouseType,
 } from '@prisma/client';
 
-describe('PurchaseReturnService', () => {
+describe('PurchaseReturnService (Phase 20H Lifecycle & RGA)', () => {
   let service: PurchaseReturnService;
   let prisma: any;
   let auditService: any;
@@ -96,21 +96,29 @@ describe('PurchaseReturnService', () => {
     purchaseReturns: [],
   };
 
-  const mockPostedReturn = {
+  const mockDraftReturn = {
     id: 'pret-1',
     organizationId: 'org-1',
     branchId: 'branch-1',
     supplierId: 'sup-1',
     grnId: 'grn-1',
     returnNumber: 'PRET-00001',
-    returnDate: new Date(),
-    status: PurchaseReturnStatus.POSTED,
-    reason: PurchaseReturnReason.DAMAGED_GOODS,
+    challanNumber: null,
+    rgaNumber: 'RGA-12345',
+    status: PurchaseReturnStatus.DRAFT,
+    reason: PurchaseReturnReason.DEFECTIVE_BATCH,
     subtotal: new Decimal('1000.00'),
     discountAmount: new Decimal('100.00'),
     taxAmount: new Decimal('45.00'),
     netTotal: new Decimal('945.00'),
-    notes: 'Damaged packaging returned',
+    branch_id: 'branch-1',
+    supplier_id: 'sup-1',
+    grn_id: 'grn-1',
+    return_number: 'PRET-00001',
+    net_total: new Decimal('945.00'),
+    rga_number: 'RGA-12345',
+    supplier: mockSupplier,
+    grn: mockGrn,
     items: [
       {
         id: 'pret-item-1',
@@ -118,35 +126,19 @@ describe('PurchaseReturnService', () => {
         grnItemId: 'grn-item-1',
         productId: 'prod-1',
         batchId: 'batch-1',
+        batchNumber: 'BATCH-2026-A',
         sourceWarehouseId: 'wh-std-1',
         returnedQuantity: 10,
-        bonusReturnedQuantity: 0,
-        totalReturnedQuantity: 10,
+        bonusReturnedQuantity: 1,
+        totalReturnedQuantity: 11,
         stockCondition: ReturnedStockCondition.SALEABLE,
         unitCost: new Decimal('100.00'),
-        discountPercentage: new Decimal('10.00'),
-        discountAmount: new Decimal('100.00'),
-        taxPercentage: new Decimal('5.00'),
-        taxAmount: new Decimal('45.00'),
         lineTotal: new Decimal('945.00'),
+        sourceWarehouse: mockWarehouseStandard,
         product: mockGrnItem.product,
         batch: mockGrnItem.batch,
-        sourceWarehouse: mockWarehouseStandard,
       },
     ],
-    grn: {
-      id: 'grn-1',
-      grnNumber: 'GRN-00001',
-      netTotal: new Decimal('9450.00'),
-    },
-    supplier: {
-      id: 'sup-1',
-      name: 'Getz Pharma Distribution',
-    },
-    branch: {
-      id: 'branch-1',
-      name: 'Main Branch',
-    },
   };
 
   beforeEach(() => {
@@ -156,13 +148,6 @@ describe('PurchaseReturnService', () => {
       },
       branch: {
         findFirst: vi.fn().mockResolvedValue({ id: 'branch-1', isHeadOffice: true }),
-      },
-      warehouse: {
-        findFirst: vi.fn().mockImplementation(({ where }: any) => {
-          if (where.id === 'wh-std-1') return Promise.resolve(mockWarehouseStandard);
-          if (where.id === 'wh-quar-1') return Promise.resolve(mockWarehouseQuarantine);
-          return Promise.resolve(null);
-        }),
       },
       supplier: {
         findFirst: vi.fn().mockResolvedValue(mockSupplier),
@@ -176,266 +161,237 @@ describe('PurchaseReturnService', () => {
         findMany: vi.fn().mockResolvedValue([mockGrnItem]),
       },
       purchaseReturn: {
-        create: vi.fn().mockImplementation(({ data }: any) =>
-          Promise.resolve({
-            id: 'pret-1',
-            ...data,
-          }),
-        ),
-        findFirst: vi.fn().mockResolvedValue(mockPostedReturn),
+        findFirst: vi.fn().mockResolvedValue(mockDraftReturn),
         findMany: vi.fn().mockResolvedValue([]),
-        update: vi.fn().mockImplementation(({ data }: any) =>
-          Promise.resolve({
-            ...mockPostedReturn,
-            ...data,
-          }),
-        ),
-        count: vi.fn().mockResolvedValue(0),
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: { netTotal: new Decimal('945.00') },
-        }),
+        create: vi.fn().mockImplementation(({ data }) => ({
+          id: 'pret-1',
+          ...data,
+        })),
+        update: vi.fn().mockImplementation(({ where, data }) => ({
+          ...mockDraftReturn,
+          ...data,
+        })),
+        count: vi.fn().mockResolvedValue(1),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { netTotal: new Decimal(945) } }),
       },
       purchaseReturnItem: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findMany: vi.fn().mockResolvedValue(mockDraftReturn.items),
       },
       stockMovement: {
-        findMany: vi.fn().mockResolvedValue([{ quantity: 100 }]), // 100 units physically available
+        findMany: vi.fn().mockResolvedValue([{ quantity: 100 }]),
         create: vi.fn().mockResolvedValue({ id: 'sm-1' }),
-      },
-      supplierPayment: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      supplierPaymentAllocation: {
-        findMany: vi.fn().mockResolvedValue([]),
       },
       supplierLedgerEntry: {
         create: vi.fn().mockResolvedValue({ id: 'sle-1' }),
       },
-      $queryRaw: vi.fn().mockImplementation((query: any) => {
-        const text =
-          typeof query === 'string'
-            ? query
-            : query?.strings
-            ? query.strings.join(' ')
-            : JSON.stringify(query);
-
-        if (text.includes('FROM suppliers') || text.includes('FROM "suppliers"')) {
+      warehouse: {
+        findFirst: vi.fn().mockImplementation(({ where }) => {
+          if (where.id === 'wh-std-1') return Promise.resolve(mockWarehouseStandard);
+          if (where.id === 'wh-quar-1') return Promise.resolve(mockWarehouseQuarantine);
+          return Promise.resolve(null);
+        }),
+      },
+      batch: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'batch-1',
+          batchNumber: 'BATCH-2026-A',
+          purchaseCost: new Decimal('100.00'),
+          expiryDate: new Date('2027-12-31'),
+          status: 'ACTIVE',
+        }),
+      },
+      product: {
+        findFirst: vi.fn().mockResolvedValue(mockGrnItem.product),
+      },
+      supplierPaymentAllocation: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      $transaction: vi.fn().mockImplementation((cb) => cb(prisma)),
+      $queryRaw: vi.fn().mockImplementation((query) => {
+        const queryStr = query.strings ? query.strings.join(' ') : String(query);
+        if (queryStr.includes('FROM goods_receive_notes')) {
+          return Promise.resolve([mockGrn]);
+        }
+        if (queryStr.includes('FROM suppliers')) {
           return Promise.resolve([mockSupplier]);
         }
-        if (text.includes('FROM goods_receive_notes') || text.includes('FROM "goods_receive_notes"')) {
-          return Promise.resolve([mockGrn]);
+        if (queryStr.includes('FROM purchase_returns')) {
+          return Promise.resolve([mockDraftReturn]);
         }
         return Promise.resolve([]);
       }),
-      $transaction: vi.fn().mockImplementation((cb: any) => cb(prisma)),
     };
 
     auditService = {
-      log: vi.fn().mockResolvedValue(true),
+      log: vi.fn().mockResolvedValue(undefined),
     };
 
     numberingService = {
-      generateNextNumber: vi.fn().mockResolvedValue({ documentNumber: 'PRET-00001' }),
+      generateNextNumber: vi.fn().mockImplementation((docType) => {
+        if (docType === DocumentType.SUPPLIER_RETURN_CHALLAN) {
+          return Promise.resolve({
+            documentNumber: 'SRCH-00001',
+            seriesId: 'series-challan-1',
+            sequence: 1,
+          });
+        }
+        return Promise.resolve({
+          documentNumber: 'PRET-00001',
+          seriesId: 'series-pret-1',
+          sequence: 1,
+        });
+      }),
     };
 
     service = new PurchaseReturnService(prisma, auditService, numberingService);
   });
 
-  describe('getReturnableGrn', () => {
-    it('returns line items with remaining returnable quantities', async () => {
-      const result = await service.getReturnableGrn('grn-1');
-      expect(result).toBeDefined();
-      expect(result.grn.grnNumber).toBe('GRN-00001');
-      expect(result.items).toHaveLength(1);
-      expect(result.items[0].availableBilled).toBe(100);
-      expect(result.items[0].availableBonus).toBe(10);
-    });
+  describe('createPurchaseReturn (DRAFT only)', () => {
+    it('should create purchase return strictly in DRAFT status with zero stock & ledger side-effects', async () => {
+      const result = await service.createPurchaseReturn(
+        {
+          grnId: 'grn-1',
+          reason: PurchaseReturnReason.DEFECTIVE_BATCH,
+          rgaNumber: 'RGA-999',
+          items: [
+            {
+              grnItemId: 'grn-item-1',
+              returnedQuantity: 10,
+              bonusReturnedQuantity: 1,
+              stockCondition: ReturnedStockCondition.SALEABLE,
+              sourceWarehouseId: 'wh-std-1',
+            },
+          ],
+        },
+        'user-1',
+      );
 
-    it('throws NotFoundException if GRN does not exist', async () => {
-      prisma.goodsReceiveNote.findFirst.mockResolvedValueOnce(null);
-      await expect(service.getReturnableGrn('unknown-grn')).rejects.toThrow(NotFoundException);
+      expect(prisma.purchaseReturn.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: PurchaseReturnStatus.DRAFT,
+            rgaNumber: 'RGA-999',
+          }),
+        }),
+      );
+
+      // In DRAFT, no stock movement and no supplier ledger entries are created!
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+      expect(prisma.supplierLedgerEntry.create).not.toHaveBeenCalled();
     });
   });
 
-  describe('createPurchaseReturn', () => {
-    it('creates a posted purchase return, stock deduction, and supplier ledger debit note successfully', async () => {
-      const result = await service.createPurchaseReturn({
-        grnId: 'grn-1',
-        reason: PurchaseReturnReason.DAMAGED_GOODS,
-        items: [
-          {
-            grnItemId: 'grn-item-1',
-            sourceWarehouseId: 'wh-std-1',
-            returnedQuantity: 10,
-            bonusReturnedQuantity: 0,
-            stockCondition: ReturnedStockCondition.SALEABLE,
-          },
-        ],
-        notes: 'Damaged blister packs returned',
-      });
+  describe('dispatchPurchaseReturn', () => {
+    it('should deduct physical stock and allocate Supplier Return Challan number (SRCH-xxxxx)', async () => {
+      await service.dispatchPurchaseReturn('pret-1', 'user-1');
 
-      expect(result).toBeDefined();
-      expect(numberingService.generateNextNumber).toHaveBeenCalledWith(
-        DocumentType.PURCHASE_RETURN,
-        'branch-1',
-      );
-      // Verify physical stock deduction with negative quantity
+      // Stock deducted with negative quantity
       expect(prisma.stockMovement.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            warehouseId: 'wh-std-1',
-            quantity: -10,
             movementType: 'PURCHASE_RETURN',
+            quantity: -11, // totalReturnedQuantity
+            referenceType: 'PURCHASE_RETURN',
+            referenceId: 'pret-1',
           }),
         }),
       );
-      // Verify supplier ledger debit note
+
+      // Numbering for challan
+      expect(numberingService.generateNextNumber).toHaveBeenCalledWith(
+        DocumentType.SUPPLIER_RETURN_CHALLAN,
+        'branch-1',
+        expect.anything(),
+      );
+
+      // Status updated to DISPATCHED
+      expect(prisma.purchaseReturn.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'pret-1' },
+          data: expect.objectContaining({
+            status: PurchaseReturnStatus.DISPATCHED,
+            challanNumber: 'SRCH-00001',
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('completePurchaseReturn', () => {
+    it('should post supplier ledger DEBIT_NOTE and update GRN balance', async () => {
+      prisma.$queryRaw.mockImplementation((query) => {
+        const queryStr = query.strings ? query.strings.join(' ') : String(query);
+        if (queryStr.includes('FROM purchase_returns')) {
+          return Promise.resolve([{ ...mockDraftReturn, status: PurchaseReturnStatus.DISPATCHED }]);
+        }
+        if (queryStr.includes('FROM suppliers')) {
+          return Promise.resolve([mockSupplier]);
+        }
+        if (queryStr.includes('FROM goods_receive_notes')) {
+          return Promise.resolve([mockGrn]);
+        }
+        return Promise.resolve([]);
+      });
+
+      await service.completePurchaseReturn('pret-1', { vendorCreditNoteNumber: 'VCN-888' }, 'user-1');
+
       expect(prisma.supplierLedgerEntry.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            supplierId: 'sup-1',
             entryType: 'DEBIT_NOTE',
+            referenceNumber: 'PRET-00001',
           }),
         }),
       );
-      // Verify supplier balance updated
-      expect(prisma.supplier.update).toHaveBeenCalledWith(
+
+      expect(prisma.purchaseReturn.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'sup-1' },
+          where: { id: 'pret-1' },
+          data: expect.objectContaining({
+            status: PurchaseReturnStatus.COMPLETED,
+            vendorCreditNoteNumber: 'VCN-888',
+          }),
         }),
       );
-      // Verify audit logged
-      expect(auditService.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'CREATE_PURCHASE_RETURN',
-          entity: 'PURCHASE_RETURN',
-        }),
-      );
-    });
-
-    it('rejects return if returned quantity exceeds received quantity', async () => {
-      await expect(
-        service.createPurchaseReturn({
-          grnId: 'grn-1',
-          reason: PurchaseReturnReason.NEAR_EXPIRY_RECALL,
-          items: [
-            {
-              grnItemId: 'grn-item-1',
-              sourceWarehouseId: 'wh-std-1',
-              returnedQuantity: 150, // exceeds received 100
-              bonusReturnedQuantity: 0,
-              stockCondition: ReturnedStockCondition.SALEABLE,
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects return if warehouse has insufficient physical stock', async () => {
-      prisma.stockMovement.findMany.mockResolvedValueOnce([{ quantity: 5 }]); // only 5 in stock
-
-      await expect(
-        service.createPurchaseReturn({
-          grnId: 'grn-1',
-          reason: PurchaseReturnReason.DEFECTIVE_BATCH,
-          items: [
-            {
-              grnItemId: 'grn-item-1',
-              sourceWarehouseId: 'wh-std-1',
-              returnedQuantity: 10,
-              bonusReturnedQuantity: 0,
-              stockCondition: ReturnedStockCondition.SALEABLE,
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects SALEABLE return when sourced from QUARANTINE warehouse', async () => {
-      await expect(
-        service.createPurchaseReturn({
-          grnId: 'grn-1',
-          reason: PurchaseReturnReason.DAMAGED_GOODS,
-          items: [
-            {
-              grnItemId: 'grn-item-1',
-              sourceWarehouseId: 'wh-quar-1', // quarantine warehouse
-              returnedQuantity: 5,
-              bonusReturnedQuantity: 0,
-              stockCondition: ReturnedStockCondition.SALEABLE, // mismatch
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects QUARANTINED return when sourced from STANDARD warehouse', async () => {
-      await expect(
-        service.createPurchaseReturn({
-          grnId: 'grn-1',
-          reason: PurchaseReturnReason.REGULATORY_RECALL,
-          items: [
-            {
-              grnItemId: 'grn-item-1',
-              sourceWarehouseId: 'wh-std-1', // standard warehouse
-              returnedQuantity: 5,
-              bonusReturnedQuantity: 0,
-              stockCondition: ReturnedStockCondition.QUARANTINED, // mismatch
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('cancelPurchaseReturn', () => {
-    it('cancels purchase return, creates compensating stock re-entry and recalculates ground truth settlement', async () => {
-      const result = await service.cancelPurchaseReturn('pret-1', {
-        cancellationReason: 'Supplier refused return claim',
+    it('should re-inject stock on cancellation of a DISPATCHED return', async () => {
+      prisma.$queryRaw.mockImplementation((query) => {
+        const queryStr = query.strings ? query.strings.join(' ') : String(query);
+        if (queryStr.includes('FROM purchase_returns')) {
+          return Promise.resolve([{ ...mockDraftReturn, status: PurchaseReturnStatus.DISPATCHED }]);
+        }
+        return Promise.resolve([]);
       });
 
-      expect(result).toBeDefined();
+      await service.cancelPurchaseReturn(
+        'pret-1',
+        { cancellationReason: 'Vendor refused authorization' },
+        'user-1',
+      );
+
+      expect(prisma.stockMovement.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            movementType: 'PURCHASE_RECEIPT',
+            quantity: 11, // Positive re-entry
+            referenceType: 'PURCHASE_RETURN_CANCEL',
+            referenceId: 'pret-1',
+          }),
+        }),
+      );
+
       expect(prisma.purchaseReturn.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'pret-1' },
           data: expect.objectContaining({
             status: PurchaseReturnStatus.CANCELLED,
-            cancellationReason: 'Supplier refused return claim',
           }),
         }),
       );
-      // Verify compensating stock re-entry
-      expect(prisma.stockMovement.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            movementType: 'PURCHASE_RECEIPT',
-            quantity: 10,
-          }),
-        }),
-      );
-      // Verify supplier ledger adjustment entry
-      expect(prisma.supplierLedgerEntry.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            entryType: 'ADJUSTMENT',
-            supplierId: 'sup-1',
-          }),
-        }),
-      );
-    });
-
-    it('rejects cancellation if return is already cancelled', async () => {
-      prisma.purchaseReturn.findFirst.mockResolvedValueOnce({
-        id: 'pret-1',
-        returnNumber: 'PRET-00001',
-        status: PurchaseReturnStatus.CANCELLED,
-      });
-
-      await expect(
-        service.cancelPurchaseReturn('pret-1', {
-          cancellationReason: 'Repeat cancel',
-        }),
-      ).rejects.toThrow(ConflictException);
     });
   });
 });

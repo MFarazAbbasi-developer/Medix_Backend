@@ -408,7 +408,7 @@ export class SupplierPaymentService {
             const activeReturns = await tx.purchaseReturn.findMany({
               where: {
                 grnId: grn.id,
-                status: PurchaseReturnStatus.POSTED,
+                status: PurchaseReturnStatus.COMPLETED,
               },
             });
             const returnCredit = activeReturns.reduce(

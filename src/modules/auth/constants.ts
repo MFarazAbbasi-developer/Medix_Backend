@@ -233,18 +233,34 @@ export const INITIAL_PERMISSIONS = [
     description: 'Cancel or return post-dated cheques to customer prior to clearance',
   },
 
-  // Sales Returns
+  // Sales & Purchase Returns (Phase 20H)
   {
     code: 'returns.view',
-    description: 'View customer sales returns and credit notes',
+    description: 'View customer sales returns, purchase returns, and credit/debit notes',
   },
   {
     code: 'returns.create',
-    description: 'Create and post customer sales returns and issue credit notes/refunds',
+    description: 'Create sales returns, credit notes, and draft purchase returns',
   },
   {
     code: 'returns.cancel',
-    description: 'Cancel customer sales returns with stock and settlement reversal',
+    description: 'Cancel sales returns and purchase returns with stock and settlement reversal',
+  },
+  {
+    code: 'returns.dispatch_challan',
+    description: 'Dispatch purchase return goods and generate non-financial supplier return challan',
+  },
+  {
+    code: 'returns.post_debit_note',
+    description: 'Finalize and post purchase return debit note to supplier ledger',
+  },
+  {
+    code: 'returns.rga_manage',
+    description: 'Register and update Return Goods Authorization (RGA/RMA) reference numbers',
+  },
+  {
+    code: 'returns.print_challan',
+    description: 'Print supplier return transport delivery challans (A4 & 80mm)',
   },
 
   // Pricing & Commercial Schemes
@@ -381,6 +397,46 @@ export const INITIAL_PERMISSIONS = [
   {
     code: 'delivery_orders.print',
     description: 'Print delivery challans and dispatch notes',
+  },
+
+  // Cash Sessions & Till Reconciliation (Phase 20F)
+  {
+    code: 'cash_sessions.view',
+    description: 'View till sessions, register, and daily cash reconciliation',
+  },
+  {
+    code: 'cash_sessions.open',
+    description: 'Open a new cash till session with opening float',
+  },
+  {
+    code: 'cash_sessions.count',
+    description: 'Count physical drawer cash and calculate variance',
+  },
+  {
+    code: 'cash_sessions.close',
+    description: 'Close and finalize active till session',
+  },
+  {
+    code: 'cash_sessions.adjust',
+    description: 'Record intra-day cash-in (float add) and cash-out (safe drop/petty) movements',
+  },
+  {
+    code: 'cash_sessions.approve_variance',
+    description: 'Approve till session closing with cash shortage or excess above threshold',
+  },
+  {
+    code: 'cash_sessions.print',
+    description: 'Print 80mm till close slips and daily reconciliation reports',
+  },
+
+  // Reorder Point & Purchase Suggestions (Phase 20G)
+  {
+    code: 'purchases.suggestions_view',
+    description: 'View reorder points, sales velocity, and purchase suggestions',
+  },
+  {
+    code: 'purchases.suggestions_configure',
+    description: 'Configure branch product reorder points, target stock, and lead times',
   },
 ] as const;
 

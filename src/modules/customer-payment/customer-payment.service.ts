@@ -16,6 +16,7 @@ import {
   CustomerPaymentStatus,
   SalesInvoiceStatus,
   CustomerLedgerEntryType,
+  TillSessionStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -233,8 +234,36 @@ export class CustomerPaymentService {
         const numberResult = await this.numbering.generateNextNumber(
           DocumentType.PAYMENT_RECEIPT,
           branchId,
+          tx,
         );
         const paymentNumber = numberResult.documentNumber;
+
+        // 3b. Enforce active OPEN till session for physical CASH collections
+        let activeTillSessionId: string | null = null;
+        if (dto.paymentMethod === 'CASH') {
+          if (!userId) {
+            throw new BadRequestException(
+              'Cashier user identification is required to process physical cash customer payments.',
+            );
+          }
+
+          const activeSession = await tx.tillSession.findFirst({
+            where: {
+              organizationId,
+              branchId,
+              userId,
+              status: TillSessionStatus.OPEN,
+            },
+          });
+
+          if (!activeSession) {
+            throw new BadRequestException(
+              'An active open cash till session is required to record physical cash collections. Please open a till session first.',
+            );
+          }
+
+          activeTillSessionId = activeSession.id;
+        }
 
         // 4. Create CustomerPayment Header
         const payment = await tx.customerPayment.create({
@@ -242,6 +271,7 @@ export class CustomerPaymentService {
             organizationId,
             branchId,
             customerId: lockedCustomer.id,
+            tillSessionId: activeTillSessionId,
             paymentNumber,
             paymentDate: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
             paymentMethod: dto.paymentMethod,

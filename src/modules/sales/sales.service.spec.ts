@@ -109,6 +109,9 @@ describe('SalesService', () => {
       promotionalScheme: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      tillSession: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'till-session-1', status: 'OPEN' }),
+      },
       customerDeliveryAddress: {
         findFirst: vi.fn().mockImplementation(({ where }) => {
           if (where.id === 'addr-1') {

@@ -87,7 +87,15 @@ export class PurchaseReturnService {
           },
         },
         purchaseReturns: {
-          where: { status: PurchaseReturnStatus.POSTED },
+          where: {
+            status: {
+              in: [
+                PurchaseReturnStatus.DRAFT,
+                PurchaseReturnStatus.DISPATCHED,
+                PurchaseReturnStatus.COMPLETED,
+              ],
+            },
+          },
           include: { items: true },
         },
       },
@@ -103,15 +111,17 @@ export class PurchaseReturnService {
       );
     }
 
-    // Cumulative returned quantities per GRN item line
+    // Cumulative returned quantities per GRN item line (for active returns)
     const returnedMap: Record<string, { billed: number; bonus: number }> = {};
     for (const ret of grn.purchaseReturns) {
       for (const item of ret.items) {
-        if (!returnedMap[item.grnItemId]) {
-          returnedMap[item.grnItemId] = { billed: 0, bonus: 0 };
+        if (item.grnItemId) {
+          if (!returnedMap[item.grnItemId]) {
+            returnedMap[item.grnItemId] = { billed: 0, bonus: 0 };
+          }
+          returnedMap[item.grnItemId].billed += item.returnedQuantity;
+          returnedMap[item.grnItemId].bonus += item.bonusReturnedQuantity;
         }
-        returnedMap[item.grnItemId].billed += item.returnedQuantity;
-        returnedMap[item.grnItemId].bonus += item.bonusReturnedQuantity;
       }
     }
 
@@ -171,7 +181,102 @@ export class PurchaseReturnService {
   }
 
   /**
-   * Creates and posts a Purchase Return document with exact-warehouse physical deduction and supplier ledger debit note.
+   * Retrieves available batches in inventory for direct (non-GRN) returns.
+   */
+  async getReturnableBatches(query: {
+    supplierId?: string;
+    warehouseId?: string;
+    search?: string;
+  }) {
+    const orgId = await this.getOrganizationId();
+    const now = new Date();
+
+    const movements = await this.prisma.stockMovement.findMany({
+      where: {
+        organizationId: orgId,
+        ...(query.warehouseId ? { warehouseId: query.warehouseId } : {}),
+      },
+      include: {
+        warehouse: true,
+        batch: {
+          include: {
+            product: {
+              include: {
+                manufacturer: true,
+                unit: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const stockMap = new Map<
+      string,
+      {
+        warehouseId: string;
+        warehouseName: string;
+        warehouseCode: string;
+        warehouseType: string;
+        productId: string;
+        productName: string;
+        productSku: string;
+        genericName: string | null;
+        unit: string | null;
+        batchId: string;
+        batchNumber: string;
+        expiryDate: Date;
+        isExpired: boolean;
+        batchStatus: string;
+        purchaseCost: number;
+        availableQuantity: number;
+      }
+    >();
+
+    for (const m of movements) {
+      const key = `${m.warehouseId}_${m.batchId}`;
+      const existing = stockMap.get(key) || {
+        warehouseId: m.warehouseId,
+        warehouseName: m.warehouse.name,
+        warehouseCode: m.warehouse.code,
+        warehouseType: m.warehouse.warehouseType,
+        productId: m.productId,
+        productName: m.batch.product.name,
+        productSku: m.batch.product.sku,
+        genericName: m.batch.product.genericName,
+        unit: m.batch.product.unit ? m.batch.product.unit.symbol : null,
+        batchId: m.batchId,
+        batchNumber: m.batch.batchNumber,
+        expiryDate: m.batch.expiryDate,
+        isExpired: new Date(m.batch.expiryDate) <= now,
+        batchStatus: m.batch.status,
+        purchaseCost: Number(m.batch.purchaseCost),
+        availableQuantity: 0,
+      };
+
+      existing.availableQuantity += m.quantity;
+      stockMap.set(key, existing);
+    }
+
+    let items = Array.from(stockMap.values()).filter((i) => i.availableQuantity > 0);
+
+    if (query.search) {
+      const s = query.search.toLowerCase();
+      items = items.filter(
+        (i) =>
+          i.productName.toLowerCase().includes(s) ||
+          i.productSku.toLowerCase().includes(s) ||
+          i.batchNumber.toLowerCase().includes(s) ||
+          (i.genericName && i.genericName.toLowerCase().includes(s)),
+      );
+    }
+
+    return items;
+  }
+
+  /**
+   * Creates a Purchase Return document strictly in DRAFT status.
+   * Does NOT deduct stock and does NOT post to supplier ledger.
    */
   async createPurchaseReturn(dto: CreatePurchaseReturnDto, userId?: string) {
     const organizationId = await this.getOrganizationId();
@@ -185,40 +290,103 @@ export class PurchaseReturnService {
       (item) => item.returnedQuantity > 0 || (item.bonusReturnedQuantity || 0) > 0,
     );
     if (!hasQuantity) {
-      throw new BadRequestException('At least one line item must have a return quantity greater than 0');
+      throw new BadRequestException(
+        'At least one line item must have a return quantity greater than 0',
+      );
     }
 
     return this.prisma.$transaction(
       async (tx) => {
-        // 1. Lock GRN row with FOR UPDATE
-        const lockedGrns = await tx.$queryRaw<
-          Array<{
-            id: string;
-            organization_id: string;
-            branch_id: string;
-            supplier_id: string;
-            grn_number: string;
-            status: string;
-            net_total: Prisma.Decimal;
-            paid_amount: Prisma.Decimal;
-            balance_amount: Prisma.Decimal;
-          }>
-        >`
-          SELECT id, organization_id, branch_id, supplier_id, grn_number, status, net_total, paid_amount, balance_amount
-          FROM goods_receive_notes
-          WHERE id = ${dto.grnId} AND organization_id = ${organizationId}
-          FOR UPDATE
-        `;
+        let resolvedSupplierId: string;
+        let lockedGrn: {
+          id: string;
+          organization_id: string;
+          branch_id: string;
+          supplier_id: string;
+          grn_number: string;
+          status: string;
+          net_total: Prisma.Decimal;
+          paid_amount: Prisma.Decimal;
+          balance_amount: Prisma.Decimal;
+        } | null = null;
 
-        if (!lockedGrns.length) {
-          throw new NotFoundException(`Goods Receive Note with ID "${dto.grnId}" not found`);
-        }
+        let grnItemMap = new Map<string, any>();
+        const returnedCumulativeMap: Record<string, { billed: number; bonus: number }> = {};
 
-        const lockedGrn = lockedGrns[0];
-        if (lockedGrn.status !== GrnStatus.POSTED) {
-          throw new BadRequestException(
-            `Cannot issue a purchase return against GRN "${lockedGrn.grn_number}" with status ${lockedGrn.status}`,
-          );
+        // 1. If GRN-linked: lock GRN and validate
+        if (dto.grnId) {
+          const lockedGrns = await tx.$queryRaw<
+            Array<{
+              id: string;
+              organization_id: string;
+              branch_id: string;
+              supplier_id: string;
+              grn_number: string;
+              status: string;
+              net_total: Prisma.Decimal;
+              paid_amount: Prisma.Decimal;
+              balance_amount: Prisma.Decimal;
+            }>
+          >`
+            SELECT id, organization_id, branch_id, supplier_id, grn_number, status, net_total, paid_amount, balance_amount
+            FROM goods_receive_notes
+            WHERE id = ${dto.grnId} AND organization_id = ${organizationId}
+            FOR UPDATE
+          `;
+
+          if (!lockedGrns.length) {
+            throw new NotFoundException(`Goods Receive Note with ID "${dto.grnId}" not found`);
+          }
+
+          lockedGrn = lockedGrns[0];
+          if (lockedGrn.status !== GrnStatus.POSTED) {
+            throw new BadRequestException(
+              `Cannot issue a purchase return against GRN "${lockedGrn.grn_number}" with status ${lockedGrn.status}`,
+            );
+          }
+          resolvedSupplierId = lockedGrn.supplier_id;
+
+          const grnItems = await tx.goodsReceiveNoteItem.findMany({
+            where: { grnId: lockedGrn.id },
+            include: {
+              batch: true,
+              product: true,
+            },
+          });
+          grnItemMap = new Map(grnItems.map((item) => [item.id, item]));
+
+          const priorReturns = await tx.purchaseReturn.findMany({
+            where: {
+              grnId: lockedGrn.id,
+              status: {
+                in: [
+                  PurchaseReturnStatus.DRAFT,
+                  PurchaseReturnStatus.DISPATCHED,
+                  PurchaseReturnStatus.COMPLETED,
+                ],
+              },
+            },
+            include: { items: true },
+          });
+
+          for (const ret of priorReturns) {
+            for (const item of ret.items) {
+              if (item.grnItemId) {
+                if (!returnedCumulativeMap[item.grnItemId]) {
+                  returnedCumulativeMap[item.grnItemId] = { billed: 0, bonus: 0 };
+                }
+                returnedCumulativeMap[item.grnItemId].billed += item.returnedQuantity;
+                returnedCumulativeMap[item.grnItemId].bonus += item.bonusReturnedQuantity;
+              }
+            }
+          }
+        } else {
+          if (!dto.supplierId) {
+            throw new BadRequestException(
+              'Supplier ID is required when creating a direct purchase return without a GRN linkage',
+            );
+          }
+          resolvedSupplierId = dto.supplierId;
         }
 
         // 2. Lock Supplier row with FOR UPDATE
@@ -226,53 +394,26 @@ export class PurchaseReturnService {
           Array<{ id: string; current_balance: Prisma.Decimal; name: string; is_active: boolean }>
         >`
           SELECT id, current_balance, name, is_active FROM suppliers
-          WHERE id = ${lockedGrn.supplier_id} AND organization_id = ${organizationId}
+          WHERE id = ${resolvedSupplierId} AND organization_id = ${organizationId}
           FOR UPDATE
         `;
 
         if (!lockedSuppliers.length) {
-          throw new NotFoundException('Supplier associated with GRN not found');
+          throw new NotFoundException('Supplier not found');
         }
         const lockedSupplier = lockedSuppliers[0];
         if (!lockedSupplier.is_active) {
           throw new BadRequestException(`Supplier "${lockedSupplier.name}" is deactivated`);
         }
 
-        // 3. Fetch GRN line items
-        const grnItems = await tx.goodsReceiveNoteItem.findMany({
-          where: { grnId: lockedGrn.id },
-          include: {
-            batch: true,
-            product: true,
-          },
-        });
-        const grnItemMap = new Map(grnItems.map((item) => [item.id, item]));
-
-        // 4. Fetch prior returns on this GRN to validate cumulative limits
-        const priorReturns = await tx.purchaseReturn.findMany({
-          where: { grnId: lockedGrn.id, status: PurchaseReturnStatus.POSTED },
-          include: { items: true },
-        });
-
-        const returnedCumulativeMap: Record<string, { billed: number; bonus: number }> = {};
-        for (const ret of priorReturns) {
-          for (const item of ret.items) {
-            if (!returnedCumulativeMap[item.grnItemId]) {
-              returnedCumulativeMap[item.grnItemId] = { billed: 0, bonus: 0 };
-            }
-            returnedCumulativeMap[item.grnItemId].billed += item.returnedQuantity;
-            returnedCumulativeMap[item.grnItemId].bonus += item.bonusReturnedQuantity;
-          }
-        }
-
-        // 5. Validate and calculate return lines
+        // 3. Validate lines and compute snapshotted financials
         let returnSubtotal = 0;
         let returnDiscountAmount = 0;
         let returnTaxAmount = 0;
         let returnNetTotal = 0;
 
         const resolvedReturnLines: Array<{
-          grnItemId: string;
+          grnItemId: string | null;
           productId: string;
           batchId: string;
           batchNumber: string;
@@ -290,38 +431,98 @@ export class PurchaseReturnService {
           lineTotal: Prisma.Decimal;
         }> = [];
 
+        const now = new Date();
+
         for (const itemDto of dto.items) {
           const retQty = itemDto.returnedQuantity || 0;
           const bonusRetQty = itemDto.bonusReturnedQuantity || 0;
           const totalRetQty = retQty + bonusRetQty;
 
           if (totalRetQty <= 0) {
-            continue; // Skip lines with 0 quantity
+            continue;
           }
 
-          const grnItem = grnItemMap.get(itemDto.grnItemId);
-          if (!grnItem) {
-            throw new NotFoundException(`GRN Item "${itemDto.grnItemId}" not found in this GRN`);
+          let productId: string;
+          let batchId: string;
+          let batchNumber: string;
+          let expiryDate: Date;
+          let unitCostDecimal: Prisma.Decimal;
+          let discPctDecimal: Prisma.Decimal;
+          let taxPctDecimal: Prisma.Decimal;
+          let isExpired: boolean;
+          let isBatchActive: boolean;
+
+          if (itemDto.grnItemId) {
+            const grnItem = grnItemMap.get(itemDto.grnItemId);
+            if (!grnItem) {
+              throw new NotFoundException(
+                `GRN Item "${itemDto.grnItemId}" not found in this GRN`,
+              );
+            }
+
+            const prior = returnedCumulativeMap[grnItem.id] || { billed: 0, bonus: 0 };
+            const maxBilled = grnItem.receivedQuantity - prior.billed;
+            const maxBonus = grnItem.bonusQuantity - prior.bonus;
+
+            if (retQty > maxBilled) {
+              throw new BadRequestException(
+                `Returned billed quantity (${retQty}) exceeds available returnable quantity (${maxBilled}) for "${grnItem.product.name}" (Batch: ${grnItem.batchNumber})`,
+              );
+            }
+
+            if (bonusRetQty > maxBonus) {
+              throw new BadRequestException(
+                `Returned bonus quantity (${bonusRetQty}) exceeds available returnable bonus quantity (${maxBonus}) for "${grnItem.product.name}" (Batch: ${grnItem.batchNumber})`,
+              );
+            }
+
+            productId = grnItem.productId;
+            batchId = grnItem.batchId;
+            batchNumber = grnItem.batchNumber;
+            expiryDate = grnItem.expiryDate;
+            unitCostDecimal = grnItem.unitCost;
+            discPctDecimal = grnItem.discountPercentage;
+            taxPctDecimal = grnItem.taxPercentage;
+            isExpired = new Date(grnItem.expiryDate) <= now;
+            isBatchActive = grnItem.batch?.status === 'ACTIVE';
+          } else {
+            if (!itemDto.productId || !itemDto.batchId) {
+              throw new BadRequestException(
+                'Product ID and Batch ID are required for direct-batch return lines',
+              );
+            }
+
+            const [batch, product] = await Promise.all([
+              tx.batch.findFirst({
+                where: {
+                  id: itemDto.batchId,
+                  productId: itemDto.productId,
+                  product: { organizationId },
+                },
+              }),
+              tx.product.findFirst({
+                where: { id: itemDto.productId, organizationId },
+              }),
+            ]);
+
+            if (!product || !batch) {
+              throw new NotFoundException(
+                `Product or Batch not found for batch ID "${itemDto.batchId}"`,
+              );
+            }
+
+            productId = product.id;
+            batchId = batch.id;
+            batchNumber = batch.batchNumber;
+            expiryDate = batch.expiryDate;
+            unitCostDecimal = batch.purchaseCost; // Authoritative acquisition cost snapshot
+            discPctDecimal = new Prisma.Decimal(0);
+            taxPctDecimal = new Prisma.Decimal(0);
+            isExpired = new Date(batch.expiryDate) <= now;
+            isBatchActive = batch.status === 'ACTIVE';
           }
 
-          // A. Cumulative Quantity Check
-          const prior = returnedCumulativeMap[grnItem.id] || { billed: 0, bonus: 0 };
-          const maxBilled = grnItem.receivedQuantity - prior.billed;
-          const maxBonus = grnItem.bonusQuantity - prior.bonus;
-
-          if (retQty > maxBilled) {
-            throw new BadRequestException(
-              `Returned billed quantity (${retQty}) exceeds available returnable quantity (${maxBilled}) for "${grnItem.product.name}" (Batch: ${grnItem.batchNumber})`,
-            );
-          }
-
-          if (bonusRetQty > maxBonus) {
-            throw new BadRequestException(
-              `Returned bonus quantity (${bonusRetQty}) exceeds available returnable bonus quantity (${maxBonus}) for "${grnItem.product.name}" (Batch: ${grnItem.batchNumber})`,
-            );
-          }
-
-          // B. Verify warehouse & condition
+          // Verify source warehouse & stock condition
           const sourceWh = await tx.warehouse.findFirst({
             where: {
               id: itemDto.sourceWarehouseId,
@@ -336,7 +537,6 @@ export class PurchaseReturnService {
             );
           }
 
-          // Warehouse type isolation rules
           if (itemDto.stockCondition === ReturnedStockCondition.SALEABLE) {
             if (sourceWh.warehouseType !== WarehouseType.STANDARD) {
               throw new BadRequestException(
@@ -344,12 +544,9 @@ export class PurchaseReturnService {
               );
             }
 
-            // Inactive / Expired batch rule
-            const isExpired = new Date(grnItem.expiryDate) <= new Date();
-            const isInactive = grnItem.batch?.status !== 'ACTIVE';
-            if (isExpired || isInactive) {
+            if (isExpired || !isBatchActive) {
               throw new BadRequestException(
-                `Expired or inactive batch "${grnItem.batchNumber}" cannot be returned as SALEABLE. Condition must be set to QUARANTINED.`,
+                `Expired or inactive batch "${batchNumber}" cannot be returned as SALEABLE. Condition must be set to QUARANTINED.`,
               );
             }
           } else if (itemDto.stockCondition === ReturnedStockCondition.QUARANTINED) {
@@ -360,36 +557,15 @@ export class PurchaseReturnService {
             }
           }
 
-          // C. Physical Inventory Stock Availability Check in exact warehouse
-          if (!grnItem.batchId) {
-            throw new BadRequestException(`GRN line item ${grnItem.id} missing assigned batch`);
-          }
+          // Financial snapshot calculations
+          const unitCostNum = Number(unitCostDecimal);
+          const discPctNum = Number(discPctDecimal);
+          const taxPctNum = Number(taxPctDecimal);
 
-          const movements = await tx.stockMovement.findMany({
-            where: {
-              organizationId,
-              warehouseId: itemDto.sourceWarehouseId,
-              batchId: grnItem.batchId,
-            },
-            select: { quantity: true },
-          });
-
-          const currentWarehouseStock = movements.reduce((sum, m) => sum + m.quantity, 0);
-          if (currentWarehouseStock < totalRetQty) {
-            throw new BadRequestException(
-              `Insufficient physical stock in warehouse "${sourceWh.name}" to return batch "${grnItem.batchNumber}". Required: ${totalRetQty}, Available in warehouse: ${currentWarehouseStock}.`,
-            );
-          }
-
-          // D. Financial Calculation
-          const unitCostNum = Number(grnItem.unitCost);
           const grossLine = retQty * unitCostNum;
-          const discPct = Number(grnItem.discountPercentage);
-          const taxPct = Number(grnItem.taxPercentage);
-
-          const discAmount = Math.round(((grossLine * discPct) / 100) * 100) / 100;
+          const discAmount = Math.round(((grossLine * discPctNum) / 100) * 100) / 100;
           const taxable = grossLine - discAmount;
-          const taxAmt = Math.round(((taxable * taxPct) / 100) * 100) / 100;
+          const taxAmt = Math.round(((taxable * taxPctNum) / 100) * 100) / 100;
           const lineTotal = Math.round((taxable + taxAmt) * 100) / 100;
 
           returnSubtotal += grossLine;
@@ -398,20 +574,20 @@ export class PurchaseReturnService {
           returnNetTotal += lineTotal;
 
           resolvedReturnLines.push({
-            grnItemId: grnItem.id,
-            productId: grnItem.productId,
-            batchId: grnItem.batchId,
-            batchNumber: grnItem.batchNumber,
-            expiryDate: grnItem.expiryDate,
+            grnItemId: itemDto.grnItemId || null,
+            productId,
+            batchId,
+            batchNumber,
+            expiryDate,
             sourceWarehouseId: itemDto.sourceWarehouseId,
             returnedQuantity: retQty,
             bonusReturnedQuantity: bonusRetQty,
             totalReturnedQuantity: totalRetQty,
             stockCondition: itemDto.stockCondition,
-            unitCost: grnItem.unitCost,
-            discountPercentage: grnItem.discountPercentage,
+            unitCost: unitCostDecimal,
+            discountPercentage: discPctDecimal,
             discountAmount: new Prisma.Decimal(discAmount),
-            taxPercentage: grnItem.taxPercentage,
+            taxPercentage: taxPctDecimal,
             taxAmount: new Prisma.Decimal(taxAmt),
             lineTotal: new Prisma.Decimal(lineTotal),
           });
@@ -422,23 +598,28 @@ export class PurchaseReturnService {
         returnTaxAmount = Math.round(returnTaxAmount * 100) / 100;
         returnNetTotal = Math.round(returnNetTotal * 100) / 100;
 
-        // 6. Generate sequential return document number
+        // 4. Generate sequential return document number
         const numberResult = await this.numbering.generateNextNumber(
           DocumentType.PURCHASE_RETURN,
           branchId,
+          tx,
         );
         const returnNumber = numberResult.documentNumber;
 
-        // 7. Create PurchaseReturn Header
+        // 5. Create PurchaseReturn Header strictly in DRAFT status
         const purchaseReturn = await tx.purchaseReturn.create({
           data: {
             organizationId,
             branchId,
             supplierId: lockedSupplier.id,
-            grnId: lockedGrn.id,
+            grnId: lockedGrn ? lockedGrn.id : null,
             returnNumber,
+            challanNumber: null,
+            rgaNumber: dto.rgaNumber || null,
+            rgaDate: dto.rgaDate ? new Date(dto.rgaDate) : null,
+            vendorCreditNoteNumber: dto.vendorCreditNoteNumber || null,
             returnDate: dto.returnDate ? new Date(dto.returnDate) : new Date(),
-            status: PurchaseReturnStatus.POSTED,
+            status: PurchaseReturnStatus.DRAFT,
             reason: dto.reason,
             subtotal: new Prisma.Decimal(returnSubtotal),
             discountAmount: new Prisma.Decimal(returnDiscountAmount),
@@ -449,7 +630,7 @@ export class PurchaseReturnService {
           },
         });
 
-        // 8. Create PurchaseReturn Items
+        // 6. Create PurchaseReturn Items
         await tx.purchaseReturnItem.createMany({
           data: resolvedReturnLines.map((line) => ({
             ...line,
@@ -457,86 +638,20 @@ export class PurchaseReturnService {
           })),
         });
 
-        // 9. Create Physical Stock Deductions (StockMovement OUT: PURCHASE_RETURN)
-        for (const line of resolvedReturnLines) {
-          await tx.stockMovement.create({
-            data: {
-              organizationId,
-              branchId,
-              warehouseId: line.sourceWarehouseId,
-              productId: line.productId,
-              batchId: line.batchId,
-              movementType: StockMovementType.PURCHASE_RETURN,
-              quantity: -line.totalReturnedQuantity, // Negative (-) deduction
-              unitCost: line.unitCost,
-              referenceType: 'PURCHASE_RETURN',
-              referenceId: purchaseReturn.id,
-              notes: `Purchase return debit note ${returnNumber} to supplier ${lockedSupplier.name}`,
-              createdByUserId: userId || null,
-            },
-          });
-        }
-
-        // 10. Update GRN Settlement
-        const currentGrnBalance = Number(lockedGrn.balance_amount);
-        const newGrnBalance = Math.max(
-          0,
-          Math.round((currentGrnBalance - returnNetTotal) * 100) / 100,
-        );
-        const newGrnPaid = Math.max(
-          0,
-          Math.round((Number(lockedGrn.net_total) - newGrnBalance) * 100) / 100,
-        );
-
-        await tx.goodsReceiveNote.update({
-          where: { id: lockedGrn.id },
-          data: {
-            paidAmount: new Prisma.Decimal(newGrnPaid),
-            balanceAmount: new Prisma.Decimal(newGrnBalance),
-          },
-        });
-
-        // 11. Supplier Sub-Ledger Entry (Debit reduces payable)
-        const previousSupplierBalance = Number(lockedSupplier.current_balance);
-        const newSupplierBalance = Math.round((previousSupplierBalance - returnNetTotal) * 100) / 100;
-
-        await tx.supplierLedgerEntry.create({
-          data: {
-            organizationId,
-            branchId,
-            supplierId: lockedSupplier.id,
-            grnId: lockedGrn.id,
-            purchaseReturnId: purchaseReturn.id,
-            entryType: SupplierLedgerEntryType.DEBIT_NOTE,
-            referenceNumber: returnNumber,
-            debit: new Prisma.Decimal(returnNetTotal),
-            credit: new Prisma.Decimal(0),
-            runningBalance: new Prisma.Decimal(newSupplierBalance),
-            notes: `Purchase return debit note ${returnNumber} against GRN ${lockedGrn.grn_number} (${dto.reason})`,
-            createdByUserId: userId || null,
-          },
-        });
-
-        // Update Supplier cached balance
-        await tx.supplier.update({
-          where: { id: lockedSupplier.id },
-          data: {
-            currentBalance: new Prisma.Decimal(newSupplierBalance),
-          },
-        });
-
-        // 12. Audit Log
+        // 7. Audit Log for DRAFT creation
         await this.audit.log({
           userId,
-          action: 'CREATE_PURCHASE_RETURN',
+          action: 'CREATE_PURCHASE_RETURN_DRAFT',
           entity: 'PURCHASE_RETURN',
           entityId: purchaseReturn.id,
           details: {
             returnNumber,
-            grnNumber: lockedGrn.grn_number,
+            supplierId: lockedSupplier.id,
+            supplierName: lockedSupplier.name,
+            grnId: lockedGrn?.id,
+            rgaNumber: dto.rgaNumber,
             netTotal: returnNetTotal,
-            reason: dto.reason,
-            itemsCount: resolvedReturnLines.length,
+            itemCount: resolvedReturnLines.length,
           },
         });
 
@@ -547,144 +662,463 @@ export class PurchaseReturnService {
   }
 
   /**
-   * Cancels/voids a posted Purchase Return document with stock re-entry and ground-truth GRN settlement recalculation.
+   * Dispatches a DRAFT purchase return:
+   * Deducts physical stock with StockMovementType.PURCHASE_RETURN (-) and generates Supplier Return Challan (SRCH-xxxxx).
+   */
+  async dispatchPurchaseReturn(id: string, userId?: string) {
+    const organizationId = await this.getOrganizationId();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const lockedReturns = await tx.$queryRaw<
+          Array<{
+            id: string;
+            branch_id: string;
+            supplier_id: string;
+            return_number: string;
+            status: string;
+          }>
+        >`
+          SELECT id, branch_id, supplier_id, return_number, status
+          FROM purchase_returns
+          WHERE id = ${id} AND organization_id = ${organizationId}
+          FOR UPDATE
+        `;
+
+        if (!lockedReturns.length) {
+          throw new NotFoundException(`Purchase return with ID "${id}" not found`);
+        }
+
+        const lockedReturn = lockedReturns[0];
+        if (lockedReturn.status !== PurchaseReturnStatus.DRAFT) {
+          throw new BadRequestException(
+            `Cannot dispatch purchase return with status "${lockedReturn.status}". Only DRAFT returns can be dispatched.`,
+          );
+        }
+
+        const items = await tx.purchaseReturnItem.findMany({
+          where: { purchaseReturnId: lockedReturn.id },
+          include: { sourceWarehouse: true, batch: true, product: true },
+        });
+
+        if (!items.length) {
+          throw new BadRequestException('Purchase return contains no items to dispatch');
+        }
+
+        // 1. Verify physical inventory and create outbound stock movements
+        for (const line of items) {
+          const movements = await tx.stockMovement.findMany({
+            where: {
+              organizationId,
+              warehouseId: line.sourceWarehouseId,
+              batchId: line.batchId,
+            },
+            select: { quantity: true },
+          });
+
+          const currentWarehouseStock = movements.reduce((sum, m) => sum + m.quantity, 0);
+          if (currentWarehouseStock < line.totalReturnedQuantity) {
+            throw new BadRequestException(
+              `Insufficient physical stock in warehouse "${line.sourceWarehouse.name}" to dispatch batch "${line.batchNumber}". Required: ${line.totalReturnedQuantity}, Available: ${currentWarehouseStock}.`,
+            );
+          }
+
+          // Deduct physical stock
+          await tx.stockMovement.create({
+            data: {
+              organizationId,
+              branchId: lockedReturn.branch_id,
+              warehouseId: line.sourceWarehouseId,
+              productId: line.productId,
+              batchId: line.batchId,
+              movementType: StockMovementType.PURCHASE_RETURN,
+              quantity: -line.totalReturnedQuantity, // Negative (-) deduction
+              unitCost: line.unitCost,
+              referenceType: 'PURCHASE_RETURN',
+              referenceId: lockedReturn.id,
+              notes: `Dispatched purchase return ${lockedReturn.return_number}`,
+              createdByUserId: userId || null,
+            },
+          });
+        }
+
+        // 2. Generate sequential Supplier Return Challan number
+        const challanNumberResult = await this.numbering.generateNextNumber(
+          DocumentType.SUPPLIER_RETURN_CHALLAN,
+          lockedReturn.branch_id,
+          tx,
+        );
+        const challanNumber = challanNumberResult.documentNumber;
+
+        // 3. Update PurchaseReturn status to DISPATCHED
+        await tx.purchaseReturn.update({
+          where: { id: lockedReturn.id },
+          data: {
+            status: PurchaseReturnStatus.DISPATCHED,
+            challanNumber,
+            dispatchedAt: new Date(),
+            dispatchedByUserId: userId || null,
+          },
+        });
+
+        // 4. Audit Log
+        await this.audit.log({
+          userId,
+          action: 'DISPATCH_PURCHASE_RETURN',
+          entity: 'PURCHASE_RETURN',
+          entityId: lockedReturn.id,
+          details: {
+            returnNumber: lockedReturn.return_number,
+            challanNumber,
+          },
+        });
+
+        return this.findByIdWithTx(tx, lockedReturn.id, organizationId);
+      },
+      { timeout: 20000 },
+    );
+  }
+
+  /**
+   * Completes a DISPATCHED purchase return upon vendor confirmation/credit note:
+   * Posts SupplierLedgerEntry (DEBIT_NOTE) and updates GRN balance if linked.
+   */
+  async completePurchaseReturn(
+    id: string,
+    dto?: { vendorCreditNoteNumber?: string },
+    userId?: string,
+  ) {
+    const organizationId = await this.getOrganizationId();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const lockedReturns = await tx.$queryRaw<
+          Array<{
+            id: string;
+            branch_id: string;
+            supplier_id: string;
+            grn_id: string | null;
+            return_number: string;
+            net_total: Prisma.Decimal;
+            rga_number: string | null;
+            status: string;
+          }>
+        >`
+          SELECT id, branch_id, supplier_id, grn_id, return_number, net_total, rga_number, status
+          FROM purchase_returns
+          WHERE id = ${id} AND organization_id = ${organizationId}
+          FOR UPDATE
+        `;
+
+        if (!lockedReturns.length) {
+          throw new NotFoundException(`Purchase return with ID "${id}" not found`);
+        }
+
+        const lockedReturn = lockedReturns[0];
+        if (lockedReturn.status !== PurchaseReturnStatus.DISPATCHED) {
+          throw new BadRequestException(
+            `Cannot complete purchase return with status "${lockedReturn.status}". Only DISPATCHED returns can be completed.`,
+          );
+        }
+
+        const returnNetTotal = Number(lockedReturn.net_total);
+
+        // 1. Lock Supplier row
+        const lockedSuppliers = await tx.$queryRaw<
+          Array<{ id: string; current_balance: Prisma.Decimal; name: string; is_active: boolean }>
+        >`
+          SELECT id, current_balance, name, is_active FROM suppliers
+          WHERE id = ${lockedReturn.supplier_id} AND organization_id = ${organizationId}
+          FOR UPDATE
+        `;
+
+        if (!lockedSuppliers.length) {
+          throw new NotFoundException('Supplier not found');
+        }
+        const lockedSupplier = lockedSuppliers[0];
+
+        // 2. If GRN linked: lock GRN and update balance
+        if (lockedReturn.grn_id) {
+          const lockedGrns = await tx.$queryRaw<
+            Array<{
+              id: string;
+              grn_number: string;
+              net_total: Prisma.Decimal;
+              paid_amount: Prisma.Decimal;
+              balance_amount: Prisma.Decimal;
+            }>
+          >`
+            SELECT id, grn_number, net_total, paid_amount, balance_amount
+            FROM goods_receive_notes
+            WHERE id = ${lockedReturn.grn_id} AND organization_id = ${organizationId}
+            FOR UPDATE
+          `;
+
+          if (lockedGrns.length) {
+            const lockedGrn = lockedGrns[0];
+            const currentGrnBalance = Number(lockedGrn.balance_amount);
+            const newGrnBalance = Math.max(
+              0,
+              Math.round((currentGrnBalance - returnNetTotal) * 100) / 100,
+            );
+            const newGrnPaid = Math.max(
+              0,
+              Math.round((Number(lockedGrn.net_total) - newGrnBalance) * 100) / 100,
+            );
+
+            await tx.goodsReceiveNote.update({
+              where: { id: lockedGrn.id },
+              data: {
+                paidAmount: new Prisma.Decimal(newGrnPaid),
+                balanceAmount: new Prisma.Decimal(newGrnBalance),
+              },
+            });
+          }
+        }
+
+        // 3. Create Supplier Sub-Ledger Entry (DEBIT_NOTE reduces payable balance)
+        const previousSupplierBalance = Number(lockedSupplier.current_balance);
+        const newSupplierBalance =
+          Math.round((previousSupplierBalance - returnNetTotal) * 100) / 100;
+
+        await tx.supplierLedgerEntry.create({
+          data: {
+            organizationId,
+            branchId: lockedReturn.branch_id,
+            supplierId: lockedSupplier.id,
+            grnId: lockedReturn.grn_id || null,
+            purchaseReturnId: lockedReturn.id,
+            entryType: SupplierLedgerEntryType.DEBIT_NOTE,
+            referenceNumber: lockedReturn.return_number,
+            debit: new Prisma.Decimal(returnNetTotal),
+            credit: new Prisma.Decimal(0),
+            runningBalance: new Prisma.Decimal(newSupplierBalance),
+            notes: `Purchase return debit note ${lockedReturn.return_number}${
+              lockedReturn.rga_number ? ` (RGA: ${lockedReturn.rga_number})` : ''
+            }`,
+            createdByUserId: userId || null,
+          },
+        });
+
+        // 4. Update Supplier cached balance
+        await tx.supplier.update({
+          where: { id: lockedSupplier.id },
+          data: {
+            currentBalance: new Prisma.Decimal(newSupplierBalance),
+          },
+        });
+
+        // 5. Update PurchaseReturn status to COMPLETED
+        await tx.purchaseReturn.update({
+          where: { id: lockedReturn.id },
+          data: {
+            status: PurchaseReturnStatus.COMPLETED,
+            completedAt: new Date(),
+            completedByUserId: userId || null,
+            ...(dto?.vendorCreditNoteNumber
+              ? { vendorCreditNoteNumber: dto.vendorCreditNoteNumber }
+              : {}),
+          },
+        });
+
+        // 6. Audit Log
+        await this.audit.log({
+          userId,
+          action: 'COMPLETE_PURCHASE_RETURN',
+          entity: 'PURCHASE_RETURN',
+          entityId: lockedReturn.id,
+          details: {
+            returnNumber: lockedReturn.return_number,
+            netTotal: returnNetTotal,
+            vendorCreditNoteNumber: dto?.vendorCreditNoteNumber,
+          },
+        });
+
+        return this.findByIdWithTx(tx, lockedReturn.id, organizationId);
+      },
+      { timeout: 20000 },
+    );
+  }
+
+  /**
+   * Cancels a Purchase Return with exact-state reversal:
+   * - DRAFT: Marks CANCELLED (no stock or ledger effect).
+   * - DISPATCHED: Re-injects stock with PURCHASE_RECEIPT (+) and marks CANCELLED.
+   * - COMPLETED: Re-injects stock (+) and posts reversing credit note in supplier ledger (ADJUSTMENT).
    */
   async cancelPurchaseReturn(id: string, dto: CancelPurchaseReturnDto, userId?: string) {
     const organizationId = await this.getOrganizationId();
 
     return this.prisma.$transaction(
       async (tx) => {
-        // 1. Fetch return with items and source warehouses
-        const purchaseReturn = await tx.purchaseReturn.findFirst({
-          where: { id, organizationId },
-          include: {
-            items: {
-              include: {
-                sourceWarehouse: true,
-                batch: true,
-                product: true,
-              },
-            },
-            grn: true,
-            supplier: true,
-          },
-        });
+        const lockedReturns = await tx.$queryRaw<
+          Array<{
+            id: string;
+            branch_id: string;
+            supplier_id: string;
+            grn_id: string | null;
+            return_number: string;
+            net_total: Prisma.Decimal;
+            status: string;
+          }>
+        >`
+          SELECT id, branch_id, supplier_id, grn_id, return_number, net_total, status
+          FROM purchase_returns
+          WHERE id = ${id} AND organization_id = ${organizationId}
+          FOR UPDATE
+        `;
 
-        if (!purchaseReturn) {
+        if (!lockedReturns.length) {
           throw new NotFoundException(`Purchase return with ID "${id}" not found`);
         }
 
-        if (purchaseReturn.status === PurchaseReturnStatus.CANCELLED) {
+        const lockedReturn = lockedReturns[0];
+        if (lockedReturn.status === PurchaseReturnStatus.CANCELLED) {
           throw new ConflictException(
-            `Purchase return "${purchaseReturn.returnNumber}" is already cancelled`,
+            `Purchase return "${lockedReturn.return_number}" is already cancelled`,
           );
         }
 
-        // 2. Re-inject stock back into inventory (StockMovement IN: PURCHASE_RECEIPT)
-        for (const item of purchaseReturn.items) {
-          await tx.stockMovement.create({
+        const items = await tx.purchaseReturnItem.findMany({
+          where: { purchaseReturnId: lockedReturn.id },
+        });
+
+        // 1. Re-inject stock if physical deduction occurred (DISPATCHED or COMPLETED)
+        if (
+          lockedReturn.status === PurchaseReturnStatus.DISPATCHED ||
+          lockedReturn.status === PurchaseReturnStatus.COMPLETED
+        ) {
+          for (const item of items) {
+            await tx.stockMovement.create({
+              data: {
+                organizationId,
+                branchId: lockedReturn.branch_id,
+                warehouseId: item.sourceWarehouseId,
+                productId: item.productId,
+                batchId: item.batchId,
+                movementType: StockMovementType.PURCHASE_RECEIPT,
+                quantity: item.totalReturnedQuantity, // Positive (+) re-entry
+                unitCost: item.unitCost,
+                referenceType: 'PURCHASE_RETURN_CANCEL',
+                referenceId: lockedReturn.id,
+                notes: `Stock re-entry on cancellation of purchase return ${lockedReturn.return_number}`,
+                createdByUserId: userId || null,
+              },
+            });
+          }
+        }
+
+        // 2. Reverse Supplier Ledger if debit note was posted (COMPLETED)
+        if (lockedReturn.status === PurchaseReturnStatus.COMPLETED) {
+          const lockedSuppliers = await tx.$queryRaw<
+            Array<{ id: string; current_balance: Prisma.Decimal; name: string }>
+          >`
+            SELECT id, current_balance, name
+            FROM suppliers
+            WHERE id = ${lockedReturn.supplier_id} AND organization_id = ${organizationId}
+            FOR UPDATE
+          `;
+
+          if (!lockedSuppliers.length) {
+            throw new NotFoundException('Supplier not found');
+          }
+          const lockedSupplier = lockedSuppliers[0];
+          const returnNetTotal = Number(lockedReturn.net_total);
+          const previousSupplierBalance = Number(lockedSupplier.current_balance);
+          const newSupplierBalance =
+            Math.round((previousSupplierBalance + returnNetTotal) * 100) / 100;
+
+          await tx.supplierLedgerEntry.create({
             data: {
               organizationId,
-              branchId: purchaseReturn.branchId,
-              warehouseId: item.sourceWarehouseId,
-              productId: item.productId,
-              batchId: item.batchId,
-              movementType: StockMovementType.PURCHASE_RECEIPT,
-              quantity: item.totalReturnedQuantity, // Positive (+) re-entry
-              unitCost: item.unitCost,
-              referenceType: 'PURCHASE_RETURN_CANCEL',
-              referenceId: purchaseReturn.id,
-              notes: `Compensating stock re-entry on cancellation of purchase return ${purchaseReturn.returnNumber}`,
+              branchId: lockedReturn.branch_id,
+              supplierId: lockedSupplier.id,
+              grnId: lockedReturn.grn_id,
+              purchaseReturnId: lockedReturn.id,
+              entryType: SupplierLedgerEntryType.ADJUSTMENT,
+              referenceNumber: lockedReturn.return_number,
+              debit: new Prisma.Decimal(0),
+              credit: new Prisma.Decimal(returnNetTotal),
+              runningBalance: new Prisma.Decimal(newSupplierBalance),
+              notes: `Purchase return debit note ${lockedReturn.return_number} cancelled/voided: ${dto.cancellationReason}`,
               createdByUserId: userId || null,
             },
           });
-        }
 
-        // 3. Lock Supplier row for update
-        const lockedSuppliers = await tx.$queryRaw<
-          Array<{ id: string; current_balance: Prisma.Decimal; name: string }>
-        >`
-          SELECT id, current_balance, name
-          FROM suppliers
-          WHERE id = ${purchaseReturn.supplierId} AND organization_id = ${organizationId}
-          FOR UPDATE
-        `;
-
-        if (!lockedSuppliers.length) {
-          throw new NotFoundException('Supplier associated with purchase return not found');
-        }
-        const lockedSupplier = lockedSuppliers[0];
-
-        // 4. Lock GRN and recalculate ground-truth settlement balances
-        const lockedGrns = await tx.$queryRaw<
-          Array<{
-            id: string;
-            grn_number: string;
-            net_total: Prisma.Decimal;
-            paid_amount: Prisma.Decimal;
-            balance_amount: Prisma.Decimal;
-          }>
-        >`
-          SELECT id, grn_number, net_total, paid_amount, balance_amount
-          FROM goods_receive_notes
-          WHERE id = ${purchaseReturn.grnId} AND organization_id = ${organizationId}
-          FOR UPDATE
-        `;
-
-        if (lockedGrns.length > 0) {
-          const grn = lockedGrns[0];
-
-          // A. Fetch active supplier payment allocations
-          const paymentAllocations = await tx.supplierPaymentAllocation.findMany({
-            where: {
-              grnId: grn.id,
-              supplierPayment: {
-                status: SupplierPaymentStatus.POSTED,
-              },
-            },
-          });
-          const totalPaid = paymentAllocations.reduce(
-            (sum, a) => sum + Number(a.amountAllocated),
-            0,
-          );
-
-          // B. Fetch other active purchase returns (excluding this cancelled one)
-          const otherReturns = await tx.purchaseReturn.findMany({
-            where: {
-              grnId: grn.id,
-              id: { not: purchaseReturn.id },
-              status: PurchaseReturnStatus.POSTED,
-            },
-          });
-          const otherReturnCredit = otherReturns.reduce(
-            (sum, r) => sum + Number(r.netTotal),
-            0,
-          );
-
-          const netTotal = Number(grn.net_total);
-          const totalEffectiveCredits = Math.round((totalPaid + otherReturnCredit) * 100) / 100;
-
-          const recalculatedBalance = Math.max(
-            0,
-            Math.round((netTotal - totalEffectiveCredits) * 100) / 100,
-          );
-          const recalculatedPaid = Math.max(
-            0,
-            Math.round((netTotal - recalculatedBalance) * 100) / 100,
-          );
-
-          await tx.goodsReceiveNote.update({
-            where: { id: grn.id },
+          await tx.supplier.update({
+            where: { id: lockedSupplier.id },
             data: {
-              paidAmount: new Prisma.Decimal(recalculatedPaid),
-              balanceAmount: new Prisma.Decimal(recalculatedBalance),
+              currentBalance: new Prisma.Decimal(newSupplierBalance),
             },
           });
+
+          // Recalculate GRN balances if linked
+          if (lockedReturn.grn_id) {
+            const lockedGrns = await tx.$queryRaw<
+              Array<{
+                id: string;
+                net_total: Prisma.Decimal;
+                paid_amount: Prisma.Decimal;
+                balance_amount: Prisma.Decimal;
+              }>
+            >`
+              SELECT id, net_total, paid_amount, balance_amount
+              FROM goods_receive_notes
+              WHERE id = ${lockedReturn.grn_id} AND organization_id = ${organizationId}
+              FOR UPDATE
+            `;
+
+            if (lockedGrns.length) {
+              const grn = lockedGrns[0];
+              const paymentAllocations = await tx.supplierPaymentAllocation.findMany({
+                where: {
+                  grnId: grn.id,
+                  supplierPayment: { status: SupplierPaymentStatus.POSTED },
+                },
+              });
+              const totalPaid = paymentAllocations.reduce(
+                (sum, a) => sum + Number(a.amountAllocated),
+                0,
+              );
+
+              const otherReturns = await tx.purchaseReturn.findMany({
+                where: {
+                  grnId: grn.id,
+                  id: { not: lockedReturn.id },
+                  status: PurchaseReturnStatus.COMPLETED,
+                },
+              });
+              const otherReturnCredit = otherReturns.reduce(
+                (sum, r) => sum + Number(r.netTotal),
+                0,
+              );
+
+              const netTotal = Number(grn.net_total);
+              const totalEffectiveCredits =
+                Math.round((totalPaid + otherReturnCredit) * 100) / 100;
+              const recalculatedBalance = Math.max(
+                0,
+                Math.round((netTotal - totalEffectiveCredits) * 100) / 100,
+              );
+              const recalculatedPaid = Math.max(
+                0,
+                Math.round((netTotal - recalculatedBalance) * 100) / 100,
+              );
+
+              await tx.goodsReceiveNote.update({
+                where: { id: grn.id },
+                data: {
+                  paidAmount: new Prisma.Decimal(recalculatedPaid),
+                  balanceAmount: new Prisma.Decimal(recalculatedBalance),
+                },
+              });
+            }
+          }
         }
 
-        // 5. Mark PurchaseReturn as CANCELLED
+        // 3. Mark PurchaseReturn as CANCELLED
         await tx.purchaseReturn.update({
-          where: { id: purchaseReturn.id },
+          where: { id: lockedReturn.id },
           data: {
             status: PurchaseReturnStatus.CANCELLED,
             cancelledAt: new Date(),
@@ -693,51 +1127,19 @@ export class PurchaseReturnService {
           },
         });
 
-        // 6. Supplier Sub-Ledger Entry (Reversal: Credit increases payable back)
-        const previousSupplierBalance = Number(lockedSupplier.current_balance);
-        const returnNetTotal = Number(purchaseReturn.netTotal);
-        const newSupplierBalance = Math.round((previousSupplierBalance + returnNetTotal) * 100) / 100;
-
-        await tx.supplierLedgerEntry.create({
-          data: {
-            organizationId,
-            branchId: purchaseReturn.branchId,
-            supplierId: lockedSupplier.id,
-            grnId: purchaseReturn.grnId,
-            purchaseReturnId: purchaseReturn.id,
-            entryType: SupplierLedgerEntryType.ADJUSTMENT,
-            referenceNumber: purchaseReturn.returnNumber,
-            debit: new Prisma.Decimal(0),
-            credit: new Prisma.Decimal(returnNetTotal),
-            runningBalance: new Prisma.Decimal(newSupplierBalance),
-            notes: `Purchase return debit note ${purchaseReturn.returnNumber} cancelled/voided: ${dto.cancellationReason}`,
-            createdByUserId: userId || null,
-          },
-        });
-
-        // Update Supplier cached balance
-        await tx.supplier.update({
-          where: { id: lockedSupplier.id },
-          data: {
-            currentBalance: new Prisma.Decimal(newSupplierBalance),
-          },
-        });
-
-        // 7. Audit Log
+        // 4. Audit Log
         await this.audit.log({
           userId,
           action: 'CANCEL_PURCHASE_RETURN',
           entity: 'PURCHASE_RETURN',
-          entityId: purchaseReturn.id,
+          entityId: lockedReturn.id,
           details: {
-            returnNumber: purchaseReturn.returnNumber,
-            grnNumber: purchaseReturn.grn?.grnNumber,
-            netTotal: returnNetTotal,
+            returnNumber: lockedReturn.return_number,
             cancellationReason: dto.cancellationReason,
           },
         });
 
-        return this.findByIdWithTx(tx, purchaseReturn.id, organizationId);
+        return this.findByIdWithTx(tx, lockedReturn.id, organizationId);
       },
       { timeout: 20000 },
     );
@@ -795,13 +1197,15 @@ export class PurchaseReturnService {
     if (search) {
       where.OR = [
         { returnNumber: { contains: search, mode: 'insensitive' } },
+        { challanNumber: { contains: search, mode: 'insensitive' } },
+        { rgaNumber: { contains: search, mode: 'insensitive' } },
         { grn: { grnNumber: { contains: search, mode: 'insensitive' } } },
         { supplier: { name: { contains: search, mode: 'insensitive' } } },
         { supplier: { code: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
-    const [items, total, aggregates] = await Promise.all([
+    const [items, total, completedAggregates, dispatchedAggregates] = await Promise.all([
       this.prisma.purchaseReturn.findMany({
         where,
         skip: (page - 1) * limit,
@@ -828,6 +1232,12 @@ export class PurchaseReturnService {
           postedByUser: {
             select: { id: true, displayName: true, username: true },
           },
+          dispatchedByUser: {
+            select: { id: true, displayName: true, username: true },
+          },
+          completedByUser: {
+            select: { id: true, displayName: true, username: true },
+          },
           cancelledByUser: {
             select: { id: true, displayName: true, username: true },
           },
@@ -838,10 +1248,12 @@ export class PurchaseReturnService {
       }),
       this.prisma.purchaseReturn.count({ where }),
       this.prisma.purchaseReturn.aggregate({
-        where: { ...where, status: PurchaseReturnStatus.POSTED },
-        _sum: {
-          netTotal: true,
-        },
+        where: { ...where, status: PurchaseReturnStatus.COMPLETED },
+        _sum: { netTotal: true },
+      }),
+      this.prisma.purchaseReturn.aggregate({
+        where: { ...where, status: PurchaseReturnStatus.DISPATCHED },
+        _sum: { netTotal: true },
       }),
     ]);
 
@@ -852,7 +1264,12 @@ export class PurchaseReturnService {
       limit,
       totalPages: Math.ceil(total / limit) || 1,
       summary: {
-        totalNetReturn: aggregates._sum.netTotal ? Number(aggregates._sum.netTotal) : 0,
+        totalCompletedReturn: completedAggregates._sum.netTotal
+          ? Number(completedAggregates._sum.netTotal)
+          : 0,
+        totalDispatchedReturn: dispatchedAggregates._sum.netTotal
+          ? Number(dispatchedAggregates._sum.netTotal)
+          : 0,
       },
     };
   }
@@ -863,6 +1280,25 @@ export class PurchaseReturnService {
   async findById(id: string) {
     const organizationId = await this.getOrganizationId();
     return this.findByIdWithTx(this.prisma, id, organizationId);
+  }
+
+  /**
+   * Retrieves Supplier Return Challan print payload.
+   */
+  async getChallan(id: string) {
+    const organizationId = await this.getOrganizationId();
+    const purchaseReturn = await this.findByIdWithTx(this.prisma, id, organizationId);
+
+    if (
+      purchaseReturn.status !== PurchaseReturnStatus.DISPATCHED &&
+      purchaseReturn.status !== PurchaseReturnStatus.COMPLETED
+    ) {
+      throw new BadRequestException(
+        `Supplier Return Challan is only available for DISPATCHED or COMPLETED returns. Current status: ${purchaseReturn.status}`,
+      );
+    }
+
+    return purchaseReturn;
   }
 
   private async findByIdWithTx(
@@ -887,6 +1323,8 @@ export class PurchaseReturnService {
           },
         },
         postedByUser: { select: { id: true, displayName: true, username: true } },
+        dispatchedByUser: { select: { id: true, displayName: true, username: true } },
+        completedByUser: { select: { id: true, displayName: true, username: true } },
         cancelledByUser: { select: { id: true, displayName: true, username: true } },
         items: {
           include: {
@@ -897,6 +1335,7 @@ export class PurchaseReturnService {
                 name: true,
                 genericName: true,
                 packSize: true,
+                unit: { select: { symbol: true, name: true } },
               },
             },
             batch: {

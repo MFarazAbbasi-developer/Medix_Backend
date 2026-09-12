@@ -149,6 +149,28 @@ export class ReportsController {
   }
 
   // ==========================================
+  // CASH RECONCILIATION & TILL REPORTS (Phase 20F)
+  // ==========================================
+
+  @Get('cash/sessions')
+  @RequirePermissions('reports.view')
+  async getTillSessionsReport(@Query() query: QueryReportDto) {
+    return this.reportsService.getTillSessionsReport(query);
+  }
+
+  @Get('cash/daily-reconciliation')
+  @RequirePermissions('reports.view')
+  async getDailyCashReconciliation(@Query() query: QueryReportDto) {
+    return this.reportsService.getDailyCashReconciliation(query);
+  }
+
+  @Get('cash/variances')
+  @RequirePermissions('reports.view')
+  async getCashVariancesReport(@Query() query: QueryReportDto) {
+    return this.reportsService.getCashVariancesReport(query);
+  }
+
+  // ==========================================
   // DASHBOARD OPERATIONAL METRICS
   // ==========================================
 

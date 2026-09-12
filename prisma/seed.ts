@@ -175,6 +175,9 @@ async function main() {
     { documentType: DocumentType.PRODUCT_RECALL, prefix: 'RCL-', padding: 5 },
     { documentType: DocumentType.DELIVERY_ORDER, prefix: 'DO-', padding: 5 },
     { documentType: DocumentType.DELIVERY_CHALLAN, prefix: 'DC-', padding: 5 },
+    { documentType: DocumentType.PDC, prefix: 'PDC-', padding: 5 },
+    { documentType: DocumentType.TILL_SESSION, prefix: 'CS-', padding: 5 },
+    { documentType: DocumentType.SUPPLIER_RETURN_CHALLAN, prefix: 'SRCH-', padding: 5 },
   ];
 
   for (const item of defaultSeriesList) {

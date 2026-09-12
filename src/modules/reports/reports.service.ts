@@ -1733,4 +1733,198 @@ export class ReportsService {
       },
     };
   }
+
+  // ==========================================
+  // 7. CASH RECONCILIATION & TILL REPORTS (Phase 20F)
+  // ==========================================
+
+  /**
+   * Till session register report with status and variance.
+   */
+  async getTillSessionsReport(query: QueryReportDto) {
+    const orgId = await this.getOrganizationId();
+    const dateFilter = this.getDateRangeFilter(query.startDate, query.endDate);
+
+    const sessions = await this.prisma.tillSession.findMany({
+      where: {
+        organizationId: orgId,
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(dateFilter ? { openedAt: dateFilter } : {}),
+      },
+      include: {
+        cashierUser: { select: { id: true, username: true, displayName: true } },
+        closedByUser: { select: { id: true, username: true, displayName: true } },
+        approvedByUser: { select: { id: true, username: true, displayName: true } },
+      },
+      orderBy: { openedAt: 'desc' },
+    });
+
+    const rows = sessions.map((s) => ({
+      id: s.id,
+      sessionNumber: s.sessionNumber,
+      stationName: s.stationName || '',
+      cashier: s.cashierUser.displayName,
+      status: s.status,
+      openedAt: s.openedAt,
+      closedAt: s.closedAt,
+      openingCash: Number(s.openingCash),
+      cashSalesAmount: Number(s.cashSalesAmount),
+      cashPaymentsAmount: Number(s.cashPaymentsAmount),
+      cashRefundsAmount: Number(s.cashRefundsAmount),
+      cashInAmount: Number(s.cashInAmount),
+      cashOutAmount: Number(s.cashOutAmount),
+      expectedCash: Number(s.expectedCash),
+      actualCash: s.actualCash ? Number(s.actualCash) : null,
+      varianceAmount: s.varianceAmount ? Number(s.varianceAmount) : null,
+      varianceReason: s.varianceReason || '',
+      approvedBy: s.approvedByUser?.displayName || '',
+    }));
+
+    if (query.format === ReportExportFormat.CSV) {
+      const headers = [
+        { key: 'sessionNumber', label: 'Session #' },
+        { key: 'stationName', label: 'Station' },
+        { key: 'cashier', label: 'Cashier' },
+        { key: 'status', label: 'Status' },
+        { key: 'openedAt', label: 'Opened At' },
+        { key: 'closedAt', label: 'Closed At' },
+        { key: 'openingCash', label: 'Opening Cash' },
+        { key: 'cashSalesAmount', label: 'Cash Sales' },
+        { key: 'cashPaymentsAmount', label: 'Cash Collections' },
+        { key: 'cashRefundsAmount', label: 'Cash Refunds' },
+        { key: 'expectedCash', label: 'Expected Cash' },
+        { key: 'actualCash', label: 'Actual Cash' },
+        { key: 'varianceAmount', label: 'Variance' },
+        { key: 'varianceReason', label: 'Variance Reason' },
+        { key: 'approvedBy', label: 'Approved By' },
+      ];
+      return { csv: this.exportToCsv(headers, rows) };
+    }
+
+    return { data: rows, totalCount: rows.length };
+  }
+
+  /**
+   * Daily aggregated cash reconciliation summary.
+   */
+  async getDailyCashReconciliation(query: QueryReportDto) {
+    const orgId = await this.getOrganizationId();
+    const dateFilter = this.getDateRangeFilter(query.startDate, query.endDate);
+
+    const sessions = await this.prisma.tillSession.findMany({
+      where: {
+        organizationId: orgId,
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(dateFilter ? { openedAt: dateFilter } : {}),
+      },
+      include: {
+        cashierUser: { select: { id: true, username: true, displayName: true } },
+      },
+    });
+
+    let totalOpeningCash = 0;
+    let totalCashSales = 0;
+    let totalCashCollections = 0;
+    let totalCashIn = 0;
+    let totalCashRefunds = 0;
+    let totalCashOut = 0;
+    let totalExpectedCash = 0;
+    let totalActualCash = 0;
+    let totalVariance = 0;
+    let totalCardSales = 0;
+    let totalBankSales = 0;
+    let totalChequeSales = 0;
+    let totalCreditSales = 0;
+
+    for (const s of sessions) {
+      totalOpeningCash += Number(s.openingCash);
+      totalCashSales += Number(s.cashSalesAmount);
+      totalCashCollections += Number(s.cashPaymentsAmount);
+      totalCashIn += Number(s.cashInAmount);
+      totalCashRefunds += Number(s.cashRefundsAmount);
+      totalCashOut += Number(s.cashOutAmount);
+      totalExpectedCash += Number(s.expectedCash);
+      totalActualCash += s.actualCash ? Number(s.actualCash) : 0;
+      totalVariance += s.varianceAmount ? Number(s.varianceAmount) : 0;
+      totalCardSales += Number(s.cardSalesAmount);
+      totalBankSales += Number(s.bankSalesAmount);
+      totalChequeSales += Number(s.chequeSalesAmount);
+      totalCreditSales += Number(s.creditSalesAmount);
+    }
+
+    return {
+      sessionCount: sessions.length,
+      totalOpeningCash: Number(totalOpeningCash.toFixed(2)),
+      totalCashSales: Number(totalCashSales.toFixed(2)),
+      totalCashCollections: Number(totalCashCollections.toFixed(2)),
+      totalCashIn: Number(totalCashIn.toFixed(2)),
+      totalCashRefunds: Number(totalCashRefunds.toFixed(2)),
+      totalCashOut: Number(totalCashOut.toFixed(2)),
+      totalExpectedCash: Number(totalExpectedCash.toFixed(2)),
+      totalActualCash: Number(totalActualCash.toFixed(2)),
+      totalVariance: Number(totalVariance.toFixed(2)),
+      nonCashTenders: {
+        cardSales: Number(totalCardSales.toFixed(2)),
+        bankSales: Number(totalBankSales.toFixed(2)),
+        chequeSales: Number(totalChequeSales.toFixed(2)),
+        creditSales: Number(totalCreditSales.toFixed(2)),
+      },
+    };
+  }
+
+  /**
+   * Cashier variance audit report (Shortages / Excesses).
+   */
+  async getCashVariancesReport(query: QueryReportDto) {
+    const orgId = await this.getOrganizationId();
+    const dateFilter = this.getDateRangeFilter(query.startDate, query.endDate);
+
+    const sessions = await this.prisma.tillSession.findMany({
+      where: {
+        organizationId: orgId,
+        varianceAmount: { not: 0 },
+        status: 'CLOSED',
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(dateFilter ? { openedAt: dateFilter } : {}),
+      },
+      include: {
+        cashierUser: { select: { id: true, username: true, displayName: true } },
+        approvedByUser: { select: { id: true, username: true, displayName: true } },
+        closedByUser: { select: { id: true, username: true, displayName: true } },
+      },
+      orderBy: { closedAt: 'desc' },
+    });
+
+    const rows = sessions.map((s) => ({
+      id: s.id,
+      sessionNumber: s.sessionNumber,
+      stationName: s.stationName || '',
+      cashier: s.cashierUser.displayName,
+      closedAt: s.closedAt,
+      expectedCash: Number(s.expectedCash),
+      actualCash: s.actualCash ? Number(s.actualCash) : 0,
+      varianceAmount: s.varianceAmount ? Number(s.varianceAmount) : 0,
+      varianceType: Number(s.varianceAmount) < 0 ? 'SHORTAGE' : 'EXCESS',
+      varianceReason: s.varianceReason || '',
+      approvedBy: s.approvedByUser?.displayName || s.closedByUser?.displayName || 'N/A',
+    }));
+
+    if (query.format === ReportExportFormat.CSV) {
+      const headers = [
+        { key: 'sessionNumber', label: 'Session #' },
+        { key: 'stationName', label: 'Station' },
+        { key: 'cashier', label: 'Cashier' },
+        { key: 'closedAt', label: 'Closed Date' },
+        { key: 'expectedCash', label: 'Expected Cash' },
+        { key: 'actualCash', label: 'Actual Cash' },
+        { key: 'varianceAmount', label: 'Variance Amount' },
+        { key: 'varianceType', label: 'Type' },
+        { key: 'varianceReason', label: 'Reason' },
+        { key: 'approvedBy', label: 'Approved By' },
+      ];
+      return { csv: this.exportToCsv(headers, rows) };
+    }
+
+    return { data: rows, totalCount: rows.length };
+  }
 }
